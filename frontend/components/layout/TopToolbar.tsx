@@ -20,6 +20,7 @@ import {
   SplitSquareVertical,
   Sliders,
 } from "lucide-react";
+import { StudioSwitcher } from "./StudioSwitcher";
 
 interface TopToolbarProps {
   currentImage: ImageItem | null;
@@ -68,11 +69,13 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
 }) => {
   return (
     <header className="h-14 border-b border-[#1e293b] bg-[#0d131f]/95 backdrop-blur-md px-4 flex items-center justify-between select-none z-10">
-      {/* Left: Image Info & Dimensions */}
+      {/* Left: Studio Switcher & Image Info */}
       <div className="flex items-center gap-3 min-w-0">
+        <StudioSwitcher currentStudio="biolabel" />
+
         <div className="flex items-center gap-2 text-slate-200 font-medium text-sm truncate">
           <FileImage className="w-4 h-4 text-brand-cyan shrink-0" />
-          <span className="truncate max-w-[180px] md:max-w-[300px]">
+          <span className="truncate max-w-[150px] md:max-w-[240px]">
             {currentImage ? currentImage.filename : "No image selected"}
           </span>
           {currentImage && (
