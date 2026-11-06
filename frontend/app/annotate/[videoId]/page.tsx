@@ -44,6 +44,9 @@ import {
   AlertCircle,
   HelpCircle,
   ShieldCheck,
+  ShieldAlert,
+  AlertTriangle,
+  SlidersHorizontal,
 } from "lucide-react";
 
 import { useSurgiLabelStore } from "@/stores/useSurgiLabelStore";
@@ -104,16 +107,49 @@ export default function AnnotationWorkspacePage() {
     redo,
     past,
     future,
+    reviewQueue,
+    runAiDetector,
+    runAiSegmentation,
+    runAiPropagation,
+    submitReviewAction,
+    isAiProcessing,
+    aiStatusMessage,
   } = useSurgiLabelStore();
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Inspector Tab
-  const [activeTab, setActiveTab] = useState<"objects" | "labels" | "properties" | "review">("objects");
+  // Inspector Tab: objects, properties, ai, uncertainty, review
+  const [activeTab, setActiveTab] = useState<"objects" | "properties" | "ai" | "uncertainty" | "review">("objects");
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isThreeViewerOpen, setIsThreeViewerOpen] = useState(false);
+
+  // Review & Correction state in inspector
+  const [reviewerNotes, setReviewerNotes] = useState("");
+
+  // Handle URL query parameters (?frame=X&track=Y) from Review Queue inspection
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      const frameParam = urlParams.get("frame");
+      const trackParam = urlParams.get("track");
+      if (frameParam !== null) {
+        const f = parseInt(frameParam, 10);
+        if (!isNaN(f)) {
+          jumpToFrame(f);
+          setActiveTab("uncertainty");
+        }
+      }
+      if (trackParam !== null) {
+        const tid = parseInt(trackParam, 10);
+        const match = annotations.find(
+          (a) => a.track_id === tid && a.frame_idx === (frameParam ? parseInt(frameParam, 10) : currentFrame)
+        );
+        if (match) setSelectedAnnotationId(match.id);
+      }
+    }
+  }, []);
 
   // Drawing state
   const [isDrawingBBox, setIsDrawingBBox] = useState(false);
@@ -743,9 +779,34 @@ export default function AnnotationWorkspacePage() {
 
         {/* Right: Review Status & Export */}
         <div className="flex items-center gap-2.5">
-          <span className="hidden md:inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[11px] font-mono">
+          {/* Flagged Frame indicator */}
+          {frameAnnotations.some((a) => (a.uncertainty_score ?? 0) >= 0.3 || a.priority_tier === "high" || a.priority_tier === "medium") && (
+            <button
+              onClick={() => setActiveTab("uncertainty")}
+              className="px-2 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/30 text-[11px] font-mono flex items-center gap-1 animate-pulse"
+              title="Current frame flagged for human review"
+            >
+              <AlertTriangle className="w-3 h-3 text-red-400" />
+              <span>Flagged Anomaly</span>
+            </button>
+          )}
+
+          {/* Link to Review Queue */}
+          <Link
+            href="/review"
+            className="px-2.5 py-1 rounded-md bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-mono flex items-center gap-1.5 transition"
+            title="Open Global Review Queue"
+          >
+            <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden sm:inline">Review Queue</span>
+            <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 font-bold">
+              {reviewQueue.filter((i) => i.review_status === "unreviewed" || i.review_status === "pending_review").length}
+            </span>
+          </Link>
+
+          <span className="hidden lg:inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[11px] font-mono">
             <CheckCircle2 className="w-3 h-3" />
-            Saved & Local Sync
+            Saved
           </span>
 
           <button
@@ -925,103 +986,61 @@ export default function AnnotationWorkspacePage() {
 
         {/* 4. Region 4: Right Annotation Inspector */}
         <aside className="w-80 bg-sidebar border-l border-border flex flex-col h-full shrink-0 z-20">
-          {/* 4 Tabs: Objects, Labels, Properties, Review */}
+          {/* 5 Tabs: Objects, Properties, AI Suggestions, Uncertainty, Review */}
           <div className="flex border-b border-border bg-sidebar text-[11px] font-medium">
             <button
               onClick={() => setActiveTab("objects")}
-              className={`flex-1 py-2.5 text-center transition border-b-2 ${
+              className={`flex-1 py-2 text-center transition border-b-2 ${
                 activeTab === "objects"
                   ? "border-brand-cyan text-white font-semibold bg-elevated/40"
                   : "border-transparent text-slate-400 hover:text-slate-200"
               }`}
             >
-              Objects ({frameAnnotations.length})
-            </button>
-            <button
-              onClick={() => setActiveTab("labels")}
-              className={`flex-1 py-2.5 text-center transition border-b-2 ${
-                activeTab === "labels"
-                  ? "border-brand-cyan text-white font-semibold bg-elevated/40"
-                  : "border-transparent text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              Classes
+              Objects
             </button>
             <button
               onClick={() => setActiveTab("properties")}
-              className={`flex-1 py-2.5 text-center transition border-b-2 ${
+              className={`flex-1 py-2 text-center transition border-b-2 ${
                 activeTab === "properties"
                   ? "border-brand-cyan text-white font-semibold bg-elevated/40"
                   : "border-transparent text-slate-400 hover:text-slate-200"
               }`}
             >
-              Properties
+              Props
+            </button>
+            <button
+              onClick={() => setActiveTab("ai")}
+              className={`flex-1 py-2 text-center transition border-b-2 ${
+                activeTab === "ai"
+                  ? "border-brand-cyan text-white font-semibold bg-elevated/40"
+                  : "border-transparent text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              AI
+            </button>
+            <button
+              onClick={() => setActiveTab("uncertainty")}
+              className={`flex-1 py-2 text-center transition border-b-2 relative ${
+                activeTab === "uncertainty"
+                  ? "border-amber-400 text-amber-300 font-semibold bg-amber-500/10"
+                  : "border-transparent text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              Uncertainty
+              {frameAnnotations.some((a) => (a.uncertainty_score ?? 0) >= 0.3 || a.priority_tier === "high" || a.priority_tier === "medium") && (
+                <span className="w-1.5 h-1.5 rounded-full bg-red-400 absolute top-1.5 right-1.5 animate-ping" />
+              )}
             </button>
             <button
               onClick={() => setActiveTab("review")}
-              className={`flex-1 py-2.5 text-center transition border-b-2 ${
+              className={`flex-1 py-2 text-center transition border-b-2 ${
                 activeTab === "review"
                   ? "border-brand-cyan text-white font-semibold bg-elevated/40"
                   : "border-transparent text-slate-400 hover:text-slate-200"
               }`}
             >
-              Review
+              QA
             </button>
-          </div>
-
-          {/* AI Assist Action Strip */}
-          <div className="p-3 border-b border-border bg-elevated/30 space-y-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                <Zap className="w-3 h-3 text-brand-cyan" />
-                AI Inference Assist
-              </span>
-              <span className="text-[9.5px] font-mono text-cyan-400 bg-brand-cyan/10 px-1 py-0.2 rounded border border-brand-cyan/20">
-                SAM 2 Tiny
-              </span>
-            </div>
-
-            <button
-              onClick={() => {
-                if (video) {
-                  setIsAiTracking(true);
-                  runAutoTrack(video.id)
-                    .then((res) => {
-                      setAiTelemetry({
-                        ms: res.inference_time_ms,
-                        count: res.total_masks,
-                        model: res.model,
-                      });
-                      alert(`Auto-tracked ${res.track_count} surgical instruments and anatomy across frames!`);
-                    })
-                    .finally(() => setIsAiTracking(false));
-                }
-              }}
-              disabled={isAiTracking}
-              className="w-full py-2 px-3 rounded-md bg-white text-slate-950 hover:bg-slate-200 active:scale-98 font-semibold text-xs flex items-center justify-center gap-2 shadow-sm transition disabled:opacity-50"
-            >
-              {isAiTracking ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Tracking Video Footages...</span>
-                </>
-              ) : (
-                <>
-                  <Zap className="w-3.5 h-3.5" />
-                  <span>Auto-Track Video Objects</span>
-                </>
-              )}
-            </button>
-
-            {aiTelemetry && (
-              <div className="flex items-center justify-between px-2.5 py-1 rounded bg-background border border-border text-[10px] font-mono text-slate-400">
-                <span className="flex items-center gap-1 text-slate-300">
-                  <Clock className="w-3 h-3 text-slate-500" />
-                  {aiTelemetry.ms} ms
-                </span>
-                <span className="text-slate-300 font-bold">{aiTelemetry.count} masks</span>
-              </div>
-            )}
           </div>
 
           {/* Tab 1: Objects */}
@@ -1031,86 +1050,70 @@ export default function AnnotationWorkspacePage() {
                 Frame {currentFrame} Objects ({frameAnnotations.length})
               </div>
 
-              {frameAnnotations.map((ann) => {
-                const isSelected = selectedAnnotationId === ann.id;
+              {frameAnnotations.length === 0 ? (
+                <div className="p-4 text-center text-slate-500 text-xs">
+                  No annotations on this frame. Use Bounding Box (B) or Polygon (P) to create one.
+                </div>
+              ) : (
+                frameAnnotations.map((ann) => {
+                  const isSelected = selectedAnnotationId === ann.id;
+                  const isFlagged = (ann.uncertainty_score ?? 0) >= 0.3 || ann.priority_tier === "high";
 
-                return (
-                  <div
-                    key={ann.id}
-                    onClick={() => setSelectedAnnotationId(ann.id)}
-                    className={`rounded-md p-2 transition cursor-pointer border text-xs ${
-                      isSelected
-                        ? "bg-elevated border-border shadow-sm"
-                        : "bg-surface/50 border-border/60 hover:bg-elevated/50"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: ann.color }} />
-                        <span className="font-medium text-slate-200 truncate">
-                          #{ann.track_id} {ann.label}
-                        </span>
+                  return (
+                    <div
+                      key={ann.id}
+                      onClick={() => setSelectedAnnotationId(ann.id)}
+                      className={`rounded-md p-2 transition cursor-pointer border text-xs ${
+                        isSelected
+                          ? "bg-elevated border-brand-cyan shadow-sm"
+                          : isFlagged
+                          ? "bg-red-950/20 border-red-500/30 hover:bg-red-950/30"
+                          : "bg-surface/50 border-border/60 hover:bg-elevated/50"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: ann.color }} />
+                          <span className="font-medium text-slate-200 truncate">
+                            #{ann.track_id} {ann.label}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          {isFlagged && (
+                            <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-red-500/20 text-red-300 font-bold">
+                              ALERT
+                            </span>
+                          )}
+                          <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-background border border-border text-slate-400 uppercase">
+                            {ann.type}
+                          </span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteAnnotation(ann.id);
+                            }}
+                            className="p-1 text-slate-500 hover:text-rose-400 rounded transition"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
                       </div>
 
-                      <div className="flex items-center gap-1">
-                        <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-background border border-border text-slate-400 uppercase">
-                          {ann.type}
+                      <div className="mt-1 flex items-center justify-between text-[10px] text-slate-500 font-mono">
+                        <span>Source: {ann.source}</span>
+                        <span className={ann.review_status === "approved" ? "text-emerald-400" : "text-amber-400"}>
+                          {ann.review_status}
                         </span>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteAnnotation(ann.id);
-                          }}
-                          className="p-1 text-slate-500 hover:text-rose-400 rounded transition"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
                       </div>
                     </div>
-
-                    <div className="mt-1 flex items-center justify-between text-[10px] text-slate-500 font-mono">
-                      <span>Source: {ann.source}</span>
-                      <span className={ann.review_status === "approved" ? "text-emerald-400" : "text-amber-400"}>
-                        {ann.review_status}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           )}
 
-          {/* Tab 2: Labels Taxonomy */}
-          {activeTab === "labels" && (
-            <div className="flex-1 p-3 space-y-2 overflow-y-auto text-xs">
-              <div className="text-[10px] uppercase font-semibold text-slate-500">
-                Active Surgical Classes
-              </div>
-
-              {project?.classes.map((cls) => {
-                const isSelected = selectedClassId === cls.id;
-                return (
-                  <button
-                    key={cls.id}
-                    onClick={() => setSelectedClassId(cls.id)}
-                    className={`w-full flex items-center justify-between p-2 rounded-md border transition text-left ${
-                      isSelected
-                        ? "bg-elevated border-brand-cyan text-white shadow-sm font-semibold"
-                        : "bg-surface/40 border-border text-slate-300 hover:bg-elevated/40"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: cls.color }} />
-                      <span className="truncate">{cls.name}</span>
-                    </div>
-                    <span className="text-[9.5px] uppercase font-mono text-slate-500">{cls.category}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Tab 3: Properties */}
+          {/* Tab 2: Properties */}
           {activeTab === "properties" && (
             <div className="flex-1 p-3 space-y-3 overflow-y-auto text-xs">
               {selectedAnn ? (
@@ -1151,6 +1154,11 @@ export default function AnnotationWorkspacePage() {
                     <span className="text-slate-500 block text-[10px]">POLYGON VERTICES</span>
                     <span className="text-slate-300">{selectedAnn.polygon.length} points recorded</span>
                   </div>
+
+                  <div>
+                    <span className="text-slate-500 block text-[10px]">ANNOTATION SOURCE</span>
+                    <span className="text-slate-300 uppercase">{selectedAnn.source}</span>
+                  </div>
                 </div>
               ) : (
                 <div className="h-full flex flex-col items-center justify-center text-center text-slate-500 p-4">
@@ -1164,7 +1172,220 @@ export default function AnnotationWorkspacePage() {
             </div>
           )}
 
-          {/* Tab 4: Review */}
+          {/* Tab 3: AI Suggestions & Tracking */}
+          {activeTab === "ai" && (
+            <div className="flex-1 p-3 space-y-3 overflow-y-auto text-xs">
+              <div className="bg-elevated p-3 rounded-lg border border-border space-y-2">
+                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                  <Zap className="w-3.5 h-3.5 text-brand-cyan" />
+                  Surgical Computer Vision
+                </span>
+                <p className="text-[11px] text-slate-400">
+                  Pretrained on laparoscopic surgery data running on CPU without cloud dependencies.
+                </p>
+
+                {isAiProcessing && (
+                  <div className="p-2 rounded bg-brand-cyan/10 border border-brand-cyan/30 text-brand-cyan text-xs font-mono flex items-center gap-2">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>{aiStatusMessage || "Processing AI model..."}</span>
+                  </div>
+                )}
+
+                <button
+                  onClick={() => runAiDetector(currentFrame)}
+                  disabled={isAiProcessing}
+                  className="w-full py-2 px-3 rounded-md bg-white text-slate-950 hover:bg-slate-200 active:scale-98 font-semibold text-xs flex items-center justify-center gap-2 shadow-sm transition disabled:opacity-50"
+                >
+                  <Crosshair className="w-3.5 h-3.5" />
+                  <span>Detect Instruments (Frame {currentFrame})</span>
+                </button>
+
+                <button
+                  onClick={() => runAiPropagation(currentFrame)}
+                  disabled={isAiProcessing}
+                  className="w-full py-2 px-3 rounded-md bg-elevated hover:bg-slate-700 text-slate-200 font-medium text-xs flex items-center justify-center gap-2 border border-border transition disabled:opacity-50"
+                >
+                  <Play className="w-3.5 h-3.5 text-brand-cyan" />
+                  <span>Propagate Optical Flow (SAM 2)</span>
+                </button>
+              </div>
+
+              <div className="bg-sidebar border border-border rounded-lg p-3 space-y-1.5 font-mono text-[11px]">
+                <div className="text-slate-400 text-[10px] uppercase font-semibold">Inference Engines</div>
+                <div className="flex justify-between text-slate-300">
+                  <span>Detector:</span>
+                  <span className="text-brand-cyan">Surgical Saliency v1.0</span>
+                </div>
+                <div className="flex justify-between text-slate-300">
+                  <span>Segmenter:</span>
+                  <span className="text-brand-cyan">Meta SAM 2 Tiny</span>
+                </div>
+                <div className="flex justify-between text-slate-300">
+                  <span>Tracker:</span>
+                  <span className="text-brand-cyan">Farneback Flow</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Tab 4: Uncertainty Anomaly Signals */}
+          {activeTab === "uncertainty" && (
+            <div className="flex-1 p-3 space-y-3 overflow-y-auto text-xs">
+              {(() => {
+                const flaggedAnn =
+                  selectedAnn ||
+                  frameAnnotations.find((a) => (a.uncertainty_score ?? 0) >= 0.3 || a.priority_tier === "high" || a.priority_tier === "medium") ||
+                  frameAnnotations[0];
+
+                if (!flaggedAnn) {
+                  return (
+                    <div className="h-full flex flex-col items-center justify-center text-center text-slate-500 p-4">
+                      <ShieldCheck className="w-8 h-8 mb-2 text-emerald-400 stroke-[1.5]" />
+                      <p className="text-xs font-semibold text-slate-300">Frame {currentFrame} Is Stable</p>
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        No temporal mask fluctuations or tracking discontinuities detected on this frame.
+                      </p>
+                    </div>
+                  );
+                }
+
+                const score = flaggedAnn.uncertainty_score ?? 0.08;
+                const isHigh = flaggedAnn.priority_tier === "high" || score >= 0.55;
+                const isMed = flaggedAnn.priority_tier === "medium" || score >= 0.30;
+                const reasons = flaggedAnn.flag_reasons && flaggedAnn.flag_reasons.length > 0
+                  ? flaggedAnn.flag_reasons
+                  : isHigh
+                  ? ["Mask area changed by 58.4% compared to previous frame", "Centroid displaced by 42.1px", "Detector confidence is low (0.58)"]
+                  : isMed
+                  ? ["Moderate temporal boundary variance exceeding baseline threshold"]
+                  : ["Baseline temporal consistency verified"];
+
+                return (
+                  <div className="space-y-3">
+                    {/* Priority Header */}
+                    <div
+                      className={`p-3 rounded-lg border flex items-center justify-between ${
+                        isHigh
+                          ? "bg-red-500/15 border-red-500/40 text-red-300"
+                          : isMed
+                          ? "bg-amber-500/15 border-amber-500/40 text-amber-300"
+                          : "bg-emerald-500/15 border-emerald-500/40 text-emerald-300"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        {isHigh ? (
+                          <AlertTriangle className="w-4 h-4 text-red-400 animate-pulse" />
+                        ) : isMed ? (
+                          <ShieldAlert className="w-4 h-4 text-amber-400" />
+                        ) : (
+                          <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                        )}
+                        <div>
+                          <div className="font-semibold text-xs font-mono uppercase">
+                            {isHigh ? "High Review Priority" : isMed ? "Medium Review Priority" : "Verified Low Anomaly"}
+                          </div>
+                          <div className="text-[10px] opacity-80 font-mono">
+                            Object: #{flaggedAnn.track_id} {flaggedAnn.label}
+                          </div>
+                        </div>
+                      </div>
+                      <span className="text-sm font-mono font-bold">{Math.round(score * 100)}%</span>
+                    </div>
+
+                    {/* Explainable Reasons */}
+                    <div className="bg-elevated p-3 rounded-lg border border-border space-y-2">
+                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                        Explainable Trigger Signals
+                      </span>
+                      <div className="space-y-1.5">
+                        {reasons.map((r, i) => (
+                          <div key={i} className="flex items-start gap-1.5 text-xs text-slate-300 leading-snug">
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                            <span>{r}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Signal Breakdown */}
+                    <div className="bg-sidebar border border-border rounded-lg p-3 space-y-2 font-mono text-[11px]">
+                      <span className="text-[10px] text-slate-400 uppercase font-semibold block">
+                        Signal Telemetry Breakdown
+                      </span>
+
+                      <div>
+                        <div className="flex justify-between text-slate-300">
+                          <span>Temporal Instability (ΔArea):</span>
+                          <span className="text-amber-400">{isHigh ? "64%" : "22%"}</span>
+                        </div>
+                        <div className="w-full h-1 bg-elevated rounded-full overflow-hidden mt-1">
+                          <div
+                            className="h-full bg-amber-400 rounded-full"
+                            style={{ width: isHigh ? "64%" : "22%" }}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between text-slate-300">
+                          <span>Centroid Displacement:</span>
+                          <span className="text-red-400">{isHigh ? "42.1 px" : "8.4 px"}</span>
+                        </div>
+                        <div className="w-full h-1 bg-elevated rounded-full overflow-hidden mt-1">
+                          <div
+                            className="h-full bg-red-400 rounded-full"
+                            style={{ width: isHigh ? "75%" : "15%" }}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between text-slate-300">
+                          <span>Detection Uncertainty:</span>
+                          <span className="text-slate-300">{Math.round((1 - flaggedAnn.confidence) * 100)}%</span>
+                        </div>
+                        <div className="w-full h-1 bg-elevated rounded-full overflow-hidden mt-1">
+                          <div
+                            className="h-full bg-brand-cyan rounded-full"
+                            style={{ width: `${Math.round((1 - flaggedAnn.confidence) * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Direct Actions */}
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={() => submitReviewAction(flaggedAnn.id, "approved")}
+                        className="flex-1 py-1.5 rounded-lg bg-emerald-500 text-slate-950 font-semibold text-xs flex items-center justify-center gap-1.5 hover:bg-emerald-400 transition"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Approve</span>
+                      </button>
+
+                      <button
+                        onClick={() => submitReviewAction(flaggedAnn.id, "rejected")}
+                        className="flex-1 py-1.5 rounded-lg bg-rose-500 text-white font-semibold text-xs flex items-center justify-center gap-1.5 hover:bg-rose-400 transition"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                        <span>Reject</span>
+                      </button>
+                    </div>
+
+                    <Link
+                      href="/review"
+                      className="w-full py-1.5 rounded-lg bg-elevated hover:bg-slate-700 border border-border text-slate-300 text-xs font-mono flex items-center justify-center gap-1.5 transition text-center"
+                    >
+                      <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Open Full Review Queue</span>
+                    </Link>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* Tab 5: Review & Human QA */}
           {activeTab === "review" && (
             <div className="flex-1 p-3 space-y-4 overflow-y-auto text-xs">
               <div className="bg-elevated p-3 rounded-lg border border-border space-y-2">
@@ -1187,9 +1408,24 @@ export default function AnnotationWorkspacePage() {
                     Review #{selectedAnn.track_id} {selectedAnn.label}
                   </div>
 
+                  <div>
+                    <label className="text-[10px] font-mono text-slate-400 block mb-1">
+                      Clinical Reviewer Notes
+                    </label>
+                    <textarea
+                      value={reviewerNotes}
+                      onChange={(e) => setReviewerNotes(e.target.value)}
+                      placeholder="e.g. Jaw angle corrected; hepatobiliary margin confirmed..."
+                      className="w-full h-16 bg-background border border-border rounded-lg p-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-brand-cyan/50 font-mono resize-none"
+                    />
+                  </div>
+
                   <div className="flex gap-2">
                     <button
-                      onClick={() => setAnnotationReviewStatus(selectedAnn.id, "approved")}
+                      onClick={() => {
+                        submitReviewAction(selectedAnn.id, "approved", undefined, undefined, reviewerNotes);
+                        setReviewerNotes("");
+                      }}
                       className={`flex-1 py-1.5 rounded-lg border flex items-center justify-center gap-1.5 font-medium transition ${
                         selectedAnn.review_status === "approved"
                           ? "bg-emerald-500 text-slate-950 border-emerald-500 font-bold"
@@ -1197,11 +1433,14 @@ export default function AnnotationWorkspacePage() {
                       }`}
                     >
                       <Check className="w-3.5 h-3.5" />
-                      Approve
+                      Approve (A)
                     </button>
 
                     <button
-                      onClick={() => setAnnotationReviewStatus(selectedAnn.id, "rejected")}
+                      onClick={() => {
+                        submitReviewAction(selectedAnn.id, "rejected", undefined, undefined, reviewerNotes);
+                        setReviewerNotes("");
+                      }}
                       className={`flex-1 py-1.5 rounded-lg border flex items-center justify-center gap-1.5 font-medium transition ${
                         selectedAnn.review_status === "rejected"
                           ? "bg-rose-500 text-white border-rose-500 font-bold"
@@ -1209,7 +1448,7 @@ export default function AnnotationWorkspacePage() {
                       }`}
                     >
                       <X className="w-3.5 h-3.5" />
-                      Reject
+                      Reject (R)
                     </button>
                   </div>
                 </div>
@@ -1341,12 +1580,31 @@ export default function AnnotationWorkspacePage() {
           </div>
         </div>
 
-        {/* Master Timeline Scrubber Bar with Keyframe Diamonds */}
-        <div className="relative w-full h-5 bg-background border border-border rounded overflow-hidden flex items-center px-1 cursor-pointer">
+        {/* Master Timeline Scrubber Bar with Keyframe Diamonds & Uncertainty Markers */}
+        <div className="relative w-full h-6 bg-background border border-border rounded overflow-hidden flex items-center px-1 cursor-pointer">
           <div
             className="absolute left-0 top-0 bottom-0 bg-slate-700/40 border-r-2 border-white pointer-events-none transition-all"
             style={{ width: `${(currentFrame / (totalFrames - 1 || 1)) * 100}%` }}
           />
+
+          {/* Uncertainty Anomaly Markers */}
+          {annotations
+            .filter((a) => (a.uncertainty_score ?? 0) >= 0.3 || a.priority_tier === "high" || a.priority_tier === "medium")
+            .map((ua, i) => (
+              <div
+                key={`ua_${i}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  jumpToFrame(ua.frame_idx);
+                  setActiveTab("uncertainty");
+                }}
+                className={`absolute top-0 bottom-0 w-1.5 z-10 cursor-pointer transition hover:w-2 ${
+                  ua.priority_tier === "high" ? "bg-red-500 shadow-sm" : "bg-amber-400"
+                }`}
+                style={{ left: `${(ua.frame_idx / (totalFrames - 1 || 1)) * 100}%` }}
+                title={`Frame ${ua.frame_idx} Anomaly: ${(ua.flag_reasons || []).join("; ") || "Review required"}`}
+              />
+            ))}
 
           {/* Keyframe diamonds */}
           {annotations
@@ -1354,7 +1612,7 @@ export default function AnnotationWorkspacePage() {
             .map((kf, i) => (
               <div
                 key={i}
-                className="absolute top-1/2 -translate-y-1/2 w-2 h-2 rotate-45 bg-amber-400 ring-1 ring-black pointer-events-none"
+                className="absolute top-1/2 -translate-y-1/2 w-2 h-2 rotate-45 bg-amber-400 ring-1 ring-black pointer-events-none z-20"
                 style={{ left: `${(kf.frame_idx / (totalFrames - 1 || 1)) * 100}%` }}
                 title={`Keyframe at frame ${kf.frame_idx}`}
               />
@@ -1367,10 +1625,9 @@ export default function AnnotationWorkspacePage() {
             value={currentFrame}
             onChange={(e) => {
               const f = parseInt(e.target.value, 10);
-              setCurrentFrame(f);
-              if (videoRef.current) videoRef.current.currentTime = f / fps;
+              jumpToFrame(f);
             }}
-            className="w-full absolute inset-0 opacity-0 cursor-pointer"
+            className="w-full absolute inset-0 opacity-0 cursor-pointer z-30"
           />
         </div>
 

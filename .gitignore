@@ -95,6 +95,8 @@ frontend/out/
 # ------------------------------------------
 data/biolabel.db
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
 
@@ -123,6 +125,9 @@ data/models/*.pt
 temp_*
 
 # ------------------------------------------
+# Upstream CVAT reference clone (for architecture inspection)
+cvat_upstream/
+
 # Operating System & File System Artifacts
 # ------------------------------------------
 # macOS

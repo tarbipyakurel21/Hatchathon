@@ -10,24 +10,28 @@ import {
   BarChart3,
   Video,
   Search,
-  Sparkles,
-  Layers,
-  ChevronRight,
   ShieldCheck,
+  Sliders,
+  AlertTriangle,
 } from "lucide-react";
 import { useSurgiLabelStore } from "@/stores/useSurgiLabelStore";
 
 export const SurgiNav: React.FC = () => {
   const pathname = usePathname();
-  const { currentVideoId, projects } = useSurgiLabelStore();
+  const { currentVideoId, reviewQueue } = useSurgiLabelStore();
 
   const activeVideoId = currentVideoId || "demo_laparoscopy_cholecystectomy";
+  const pendingCount = reviewQueue.filter(
+    (item) => item.review_status === "unreviewed" || item.review_status === "pending_review"
+  ).length;
 
   const navItems = [
     { href: "/dashboard", label: "Dashboard", icon: Activity },
     { href: "/projects", label: "Projects", icon: FolderKanban },
     { href: `/annotate/${activeVideoId}`, label: "Workspace", icon: Video },
+    { href: "/review", label: "Smart Review", icon: ShieldCheck, badge: pendingCount > 0 ? pendingCount : null },
     { href: "/analytics", label: "Analytics", icon: BarChart3 },
+    { href: "/settings", label: "Settings", icon: Sliders },
   ];
 
   return (
@@ -40,12 +44,12 @@ export const SurgiNav: React.FC = () => {
           </div>
           <div>
             <div className="flex items-center gap-1.5">
-              <span className="font-semibold text-sm text-slate-100 tracking-tight">SurgiLabel</span>
+              <span className="font-semibold text-sm text-slate-100 tracking-tight">BioLabel AI</span>
               <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/30">
-                Clinical AI
+                CVAT + AI
               </span>
             </div>
-            <p className="text-[10px] text-slate-400 font-mono -mt-0.5">Surgical Video Platform</p>
+            <p className="text-[10px] text-slate-400 font-mono -mt-0.5">Annotate Less. Review Smarter.</p>
           </div>
         </Link>
 
@@ -55,13 +59,16 @@ export const SurgiNav: React.FC = () => {
         <nav className="hidden md:flex items-center gap-1">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = pathname === item.href || (item.label === "Workspace" && pathname.startsWith("/annotate"));
+            const isActive =
+              pathname === item.href ||
+              (item.label === "Workspace" && pathname.startsWith("/annotate")) ||
+              (item.label === "Projects" && pathname.startsWith("/projects"));
 
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition ${
+                className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition relative ${
                   isActive
                     ? "bg-elevated text-white border border-border shadow-sm font-semibold"
                     : "text-slate-400 hover:text-slate-200 hover:bg-elevated/50"
@@ -69,6 +76,11 @@ export const SurgiNav: React.FC = () => {
               >
                 <Icon className={`w-3.5 h-3.5 ${isActive ? "text-brand-cyan" : "text-slate-400"}`} />
                 <span>{item.label}</span>
+                {item.badge !== null && item.badge !== undefined && (
+                  <span className="ml-1 text-[10px] font-mono font-bold px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    {item.badge}
+                  </span>
+                )}
               </Link>
             );
           })}

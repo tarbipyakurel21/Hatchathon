@@ -15,6 +15,7 @@ import {
   FileCheck,
   ChevronRight,
   Sparkles,
+  ShieldAlert,
 } from "lucide-react";
 import {
   AreaChart,
@@ -43,7 +44,7 @@ const ACTIVITY_DATA = [
 ];
 
 export default function DashboardPage() {
-  const { projects, annotations } = useSurgiLabelStore();
+  const { projects, annotations, reviewQueue } = useSurgiLabelStore();
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
 
   // Compute live KPI metrics
@@ -61,10 +62,10 @@ export default function DashboardPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-xl md:text-2xl font-bold tracking-tight text-white">
-              Surgical Data Studio
+              BioLabel AI — Biomedical Data Studio
             </h1>
             <p className="text-xs text-slate-400 font-mono mt-0.5">
-              Clinical dataset curation • SAM 2 video segmentation • Computer vision benchmark
+              Annotate Less. Review Smarter. • CVAT Video Architecture + SAM 2 Tracking & Smart Review
             </p>
           </div>
 
@@ -136,6 +137,36 @@ export default function DashboardPage() {
                 Awaiting surgical QA sign-off
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Flagship Callout: Uncertainty-Aware Review Queue */}
+        <div className="bg-gradient-to-r from-amber-500/10 via-elevated to-elevated border border-amber-500/30 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 shrink-0">
+              <ShieldAlert className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-slate-100">Smart Review — Uncertainty Queue</h3>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-500/30">
+                  {reviewQueue.filter((i) => i.priority_tier === "high").length} High Priority
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Heuristic scoring has flagged candidate frames with sudden area fluctuations or tracking discontinuities for human inspection.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 shrink-0">
+            <Link
+              href="/review"
+              className="px-4 py-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-semibold text-xs flex items-center gap-1.5 transition shadow-sm"
+            >
+              <span>Open Smart Review ({reviewQueue.filter((i) => i.review_status === "unreviewed" || i.review_status === "pending_review").length})</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
           </div>
         </div>
 
