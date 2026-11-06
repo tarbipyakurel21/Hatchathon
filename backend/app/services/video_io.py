@@ -249,3 +249,49 @@ def generate_demo_surgical_video(output_mp4_path: str) -> Tuple[str, List[Dict[s
 
     writer.release()
     return output_mp4_path, tracks, frame_annotations
+
+
+def generate_real_surgical_demo(video_path: str) -> Tuple[str, List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    Generate rich clinical tracks and SAM 2 Tiny optical flow mask propagations
+    for the real laparoscopic cholecystectomy surgical video.
+    """
+    from backend.app.services.tracking.sam2_tracker import SAM2VideoTracker
+
+    meta = probe_video(video_path)
+    total_frames = meta["total_frames"]
+    tracker = SAM2VideoTracker()
+
+    tracks_config = [
+        {"track_id": 1, "label": "Laparoscopic Grasper", "category": "instrument", "color": "#06B6D4", "prompt": [160, 180, 120, 100]},
+        {"track_id": 2, "label": "Electrocautery Hook", "category": "instrument", "color": "#F59E0B", "prompt": [380, 200, 100, 90]},
+        {"track_id": 3, "label": "Gallbladder Fundus", "category": "organ", "color": "#10B981", "prompt": [270, 140, 140, 120]},
+        {"track_id": 4, "label": "Liver Parenchyma", "category": "tissue", "color": "#8B5CF6", "prompt": [80, 280, 220, 140]},
+    ]
+
+    tracks = []
+    all_annotations = []
+
+    for t in tracks_config:
+        track_meta = {
+            "track_id": t["track_id"],
+            "label": t["label"],
+            "category": t["category"],
+            "color": t["color"],
+        }
+        tracks.append(track_meta)
+        try:
+            fa = tracker.propagate_track(
+                video_path=video_path,
+                keyframe_idx=0,
+                prompt_type="box",
+                prompt_data=t["prompt"],
+                total_frames=total_frames
+            )
+            for a in fa:
+                a["track_id"] = t["track_id"]
+            all_annotations.extend(fa)
+        except Exception as e:
+            print(f"Error tracking {t['label']}: {e}")
+
+    return video_path, tracks, all_annotations

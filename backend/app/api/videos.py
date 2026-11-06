@@ -25,6 +25,7 @@ from backend.app.services.video_io import (
     extract_frame_rgb,
     extract_thumbnail,
     generate_demo_surgical_video,
+    generate_real_surgical_demo,
 )
 from backend.app.services.tracking.sam2_tracker import sam2_tracker
 from backend.app.services.video_export_service import export_video_dataset_zip
@@ -350,32 +351,38 @@ async def download_video_export(filename: str):
 @router.post("/demo/load")
 async def load_demo_surgical_video():
     """
-    One-click demo: Generates and loads laparoscopic surgery video with
-    pre-tracked SAM 2 Tiny instruments and anatomy.
+    One-click demo: Generates and loads authentic clinical laparoscopic surgery video
+    with pre-tracked SAM 2 Tiny instruments and anatomy.
     """
     ensure_video_storage_dirs()
 
     demo_vid_id = "demo_laparoscopy_cholecystectomy"
     existing = get_video(demo_vid_id)
 
-    demo_filename = "laparoscopic_cholecystectomy_demo.mp4"
-    demo_path = os.path.join(VIDEOS_DIR, demo_filename)
-    thumb_path = os.path.join(VIDEO_FRAMES_DIR, f"{demo_vid_id}_thumb.jpg")
+    real_video_filename = "real_laparoscopy_cholecystectomy.mp4"
+    real_video_path = os.path.join(VIDEOS_DIR, real_video_filename)
 
-    # Generate video if not already on disk
-    if not os.path.exists(demo_path):
-        _, tracks, annotations = generate_demo_surgical_video(demo_path)
+    if os.path.exists(real_video_path):
+        active_path = real_video_path
+        active_title = "Human Laparoscopic Cholecystectomy (Clinical Surgery)"
+        thumb_path = os.path.join(VIDEO_FRAMES_DIR, "real_laparoscopy_thumb.jpg")
+        if not os.path.exists(thumb_path):
+            extract_thumbnail(active_path, thumb_path, frame_idx=0)
+        _, tracks, annotations = generate_real_surgical_demo(active_path)
     else:
-        # Re-derive annotations
-        _, tracks, annotations = generate_demo_surgical_video(demo_path)
+        demo_filename = "laparoscopic_cholecystectomy_demo.mp4"
+        active_path = os.path.join(VIDEOS_DIR, demo_filename)
+        active_title = "Laparoscopic Cholecystectomy (Surgical Demo).mp4"
+        thumb_path = os.path.join(VIDEO_FRAMES_DIR, f"{demo_vid_id}_thumb.jpg")
+        _, tracks, annotations = generate_demo_surgical_video(active_path)
+        extract_thumbnail(active_path, thumb_path, frame_idx=0)
 
-    extract_thumbnail(demo_path, thumb_path, frame_idx=0)
-    meta = probe_video(demo_path)
+    meta = probe_video(active_path)
 
-    if not existing:
+    if not existing or existing.get("file_path") != active_path:
         video_record = create_video(
-            filename="Laparoscopic Cholecystectomy (Surgical Demo).mp4",
-            file_path=demo_path,
+            filename=active_title,
+            file_path=active_path,
             thumbnail_path=thumb_path,
             duration_seconds=meta["duration_seconds"],
             fps=meta["fps"],

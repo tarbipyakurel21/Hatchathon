@@ -5,7 +5,6 @@ import {
   VideoItem,
   VideoTrack,
   VideoFrameAnnotation,
-  SurgicalCategory,
 } from "@/lib/videoTypes";
 import { getVideoFileUrl } from "@/lib/videoApi";
 import { ThreeSurgicalViewer } from "./ThreeSurgicalViewer";
@@ -22,11 +21,14 @@ import {
   Box,
   SplitSquareVertical,
   Sliders,
+  Maximize2,
+  ChevronsLeft,
+  ChevronsRight,
+  Eye,
+  EyeOff,
   Layers,
   Sparkles,
-  Maximize2,
-  Volume2,
-  VolumeX,
+  Zap,
 } from "lucide-react";
 
 interface VideoWorkspaceProps {
@@ -66,6 +68,7 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
 
   // Playback state
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
   const [maskOpacity, setMaskOpacity] = useState<number>(0.4);
   const [showAnnotations, setShowAnnotations] = useState<boolean>(true);
   const [showBoundingBoxes, setShowBoundingBoxes] = useState<boolean>(true);
@@ -83,8 +86,8 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
   // Three.js 3D Viewer modal
   const [isThreeViewerOpen, setIsThreeViewerOpen] = useState<boolean>(false);
 
-  const fps = video?.fps || 30.0;
-  const totalFrames = video?.total_frames || 90;
+  const fps = video?.fps || 25.0;
+  const totalFrames = video?.total_frames || 120;
 
   // Sync Video time when currentFrame changes externally
   useEffect(() => {
@@ -94,6 +97,13 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
       videoRef.current.currentTime = targetTime;
     }
   }, [currentFrame, fps, isPlaying]);
+
+  // Handle Playback rate
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.playbackRate = playbackSpeed;
+    }
+  }, [playbackSpeed]);
 
   // Video timeupdate syncs currentFrame
   const handleTimeUpdate = () => {
@@ -118,49 +128,77 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
     if (!videoRef.current) return;
     videoRef.current.pause();
     setIsPlaying(false);
-    const nextFrame = Math.max(0, Math.min(totalFrames - 1, currentFrame + delta));
-    setCurrentFrame(nextFrame);
-    videoRef.current.currentTime = nextFrame / fps;
+    const next = Math.max(0, Math.min(totalFrames - 1, currentFrame + delta));
+    setCurrentFrame(next);
+    videoRef.current.currentTime = next / fps;
   };
 
-  // Keyboard shortcuts (Space = Play/Pause, Left/Right = Step, W = Point, B = Box)
+  const jumpToFrame = (frame: number) => {
+    if (!videoRef.current) return;
+    videoRef.current.pause();
+    setIsPlaying(false);
+    const clamped = Math.max(0, Math.min(totalFrames - 1, frame));
+    setCurrentFrame(clamped);
+    videoRef.current.currentTime = clamped / fps;
+  };
+
+  // Keyboard Navigation Shortcuts (CVAT Style)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (document.activeElement?.tagName === "INPUT") return;
+      // Don't trigger if typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
       if (e.code === "Space") {
         e.preventDefault();
         togglePlay();
-      } else if (e.key === "ArrowLeft") {
+      } else if (e.code === "ArrowLeft" && e.shiftKey) {
         e.preventDefault();
-        stepFrame(e.shiftKey ? -10 : -1);
-      } else if (e.key === "ArrowRight") {
+        stepFrame(-10);
+      } else if (e.code === "ArrowLeft") {
         e.preventDefault();
-        stepFrame(e.shiftKey ? 10 : 1);
-      } else if (e.key.toLowerCase() === "w") {
-        setActiveTool("point");
-      } else if (e.key.toLowerCase() === "b") {
-        setActiveTool("box");
-      } else if (e.key.toLowerCase() === "v") {
+        stepFrame(-1);
+      } else if (e.code === "ArrowRight" && e.shiftKey) {
+        e.preventDefault();
+        stepFrame(10);
+      } else if (e.code === "ArrowRight") {
+        e.preventDefault();
+        stepFrame(1);
+      } else if (e.key === "v" || e.key === "V") {
         setActiveTool("select");
-      } else if (e.key.toLowerCase() === "c") {
-        setSplitViewEnabled((s) => !s);
+      } else if (e.key === "w" || e.key === "W") {
+        setActiveTool("point");
+      } else if (e.key === "b" || e.key === "B") {
+        setActiveTool("box");
+      } else if (e.key === "c" || e.key === "C") {
+        setSplitViewEnabled((prev) => !prev);
+      } else if (e.code === "Home") {
+        e.preventDefault();
+        jumpToFrame(0);
+      } else if (e.code === "End") {
+        e.preventDefault();
+        jumpToFrame(totalFrames - 1);
       }
     };
+
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [currentFrame, isPlaying, totalFrames]);
+  }, [currentFrame, totalFrames, fps, isPlaying]);
 
-  // Canvas Mouse Coordinates mapping to native video resolution
+  // Convert canvas mouse coordinates to original video resolution coordinates
   const getCanvasVideoCoords = (e: React.MouseEvent<HTMLCanvasElement>): [number, number] => {
     const canvas = canvasRef.current;
     if (!canvas || !video) return [0, 0];
     const rect = canvas.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const clickY = e.clientY - rect.top;
-    const vx = (clickX / rect.width) * (video.width || 640);
-    const vy = (clickY / rect.height) * (video.height || 360);
-    return [vx, vy];
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    const vw = video.width || 640;
+    const vh = video.height || 480;
+
+    const scaleX = vw / rect.width;
+    const scaleY = vh / rect.height;
+
+    return [mouseX * scaleX, mouseY * scaleY];
   };
 
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -169,10 +207,10 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
     const rect = canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
 
-    // Split divider drag check
+    // Check if dragging split slider handle
     if (splitViewEnabled) {
-      const divX = rect.width * splitPosition;
-      if (Math.abs(mouseX - divX) <= 10) {
+      const splitX = rect.width * splitPosition;
+      if (Math.abs(mouseX - splitX) < 14) {
         setIsDraggingSplit(true);
         return;
       }
@@ -180,18 +218,13 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
 
     const [vx, vy] = getCanvasVideoCoords(e);
 
-    // SAM 2 Point Prompt
     if (activeTool === "point") {
-      setRipples((prev) => [...prev.slice(-3), { x: vx, y: vy, time: Date.now() }]);
+      // Add ripple animation
+      setRipples((prev) => [...prev, { x: mouseX, y: e.clientY - rect.top, time: Date.now() }]);
       onPrompt(currentFrame, "point", [Math.round(vx), Math.round(vy)]);
-      return;
-    }
-
-    // SAM 2 Box Prompt
-    if (activeTool === "box") {
+    } else if (activeTool === "box") {
       setBoxStart([vx, vy]);
       setCurrentBox([vx, vy, 0, 0]);
-      return;
     }
   };
 
@@ -242,7 +275,7 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
     if (!ctx) return;
 
     const vw = video.width || 640;
-    const vh = video.height || 360;
+    const vh = video.height || 480;
 
     // Handle high DPI
     const dpr = window.devicePixelRatio || 1;
@@ -280,7 +313,7 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
         });
         ctx.closePath();
 
-        // Semi-transparent mask fill
+        // Semi-transparent mask fill (CVAT style)
         ctx.fillStyle = color;
         ctx.globalAlpha = isSelected ? Math.min(maskOpacity + 0.35, 0.95) : maskOpacity;
         ctx.fill();
@@ -288,27 +321,40 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
         // Contour stroke
         ctx.globalAlpha = 1.0;
         ctx.strokeStyle = isSelected ? "#FFFFFF" : color;
-        ctx.lineWidth = isSelected ? 3 : 2;
+        ctx.lineWidth = isSelected ? 2.5 : 1.5;
         ctx.stroke();
+
+        // If selected, draw vertex handles (CVAT vertex editor)
+        if (isSelected) {
+          ann.polygon.forEach(([px, py]) => {
+            ctx.fillStyle = "#FFFFFF";
+            ctx.strokeStyle = "#000000";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(px * scaleX, py * scaleY, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+          });
+        }
 
         // Bounding box
         if (showBoundingBoxes && ann.bbox) {
           const [bx, by, bw, bh] = ann.bbox;
-          ctx.strokeStyle = isSelected ? "#FFFFFF" : "rgba(255, 255, 255, 0.4)";
+          ctx.strokeStyle = isSelected ? "#FFFFFF" : color;
           ctx.lineWidth = 1;
           ctx.setLineDash([3, 3]);
           ctx.strokeRect(bx * scaleX, by * scaleY, bw * scaleX, bh * scaleY);
           ctx.setLineDash([]);
 
-          // Label badge
+          // Label badge (CVAT clean tag)
           if (track) {
-            ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
-            const text = `${track.label} #${track.track_id}`;
+            ctx.fillStyle = "rgba(10, 10, 12, 0.9)";
+            const text = `#${track.track_id} ${track.label}`;
             ctx.font = "bold 10px monospace";
             const textMetrics = ctx.measureText(text);
-            ctx.fillRect(bx * scaleX, by * scaleY - 16, textMetrics.width + 8, 16);
-            ctx.fillStyle = isSelected ? "#22D3EE" : "#F1F5F9";
-            ctx.fillText(text, bx * scaleX + 4, by * scaleY - 4);
+            ctx.fillRect(bx * scaleX, by * scaleY - 17, textMetrics.width + 8, 16);
+            ctx.fillStyle = isSelected ? "#FFFFFF" : "#E4E4E7";
+            ctx.fillText(text, bx * scaleX + 4, by * scaleY - 5);
           }
         }
       });
@@ -333,7 +379,7 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
     if (currentBox) {
       const [bx, by, bw, bh] = currentBox;
       ctx.strokeStyle = "#10B981";
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 1.5;
       ctx.setLineDash([4, 4]);
       ctx.strokeRect(bx * scaleX, by * scaleY, bw * scaleX, bh * scaleY);
       ctx.setLineDash([]);
@@ -349,47 +395,49 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
         const prog = elapsed / 1000;
         const rad = 10 + prog * 30;
         ctx.beginPath();
-        ctx.arc(r.x * scaleX, r.y * scaleY, rad, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(34, 211, 238, ${1 - prog})`;
+        ctx.arc(r.x, r.y, rad, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(6, 182, 212, ${1.0 - prog})`;
         ctx.lineWidth = 2;
         ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(r.x, r.y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = "#06B6D4";
+        ctx.fill();
       }
     });
 
-    // Split Divider Line
+    // Split Line & Slider Handle (CVAT compare slider)
     if (splitViewEnabled) {
-      const dividerX = rect.width * splitPosition;
-      ctx.strokeStyle = "#22D3EE";
-      ctx.lineWidth = 2;
-      ctx.setLineDash([6, 4]);
+      const splitX = rect.width * splitPosition;
       ctx.beginPath();
-      ctx.moveTo(dividerX, 0);
-      ctx.lineTo(dividerX, rect.height);
+      ctx.moveTo(splitX, 0);
+      ctx.lineTo(splitX, rect.height);
+      ctx.strokeStyle = "#FFFFFF";
+      ctx.lineWidth = 2;
       ctx.stroke();
-      ctx.setLineDash([]);
 
-      // Center Grip
-      const midY = rect.height / 2;
-      ctx.fillStyle = "#0D131F";
-      ctx.strokeStyle = "#22D3EE";
-      ctx.lineWidth = 2;
+      // Handle circle
       ctx.beginPath();
-      ctx.arc(dividerX, midY, 13, 0, Math.PI * 2);
+      ctx.arc(splitX, rect.height / 2, 12, 0, Math.PI * 2);
+      ctx.fillStyle = "#18181B";
       ctx.fill();
+      ctx.strokeStyle = "#FFFFFF";
+      ctx.lineWidth = 2;
       ctx.stroke();
 
-      ctx.fillStyle = "#22D3EE";
-      ctx.font = "bold 11px sans-serif";
+      // Arrows
+      ctx.fillStyle = "#FFFFFF";
+      ctx.font = "bold 10px sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText("◂ ▸", dividerX, midY);
+      ctx.fillText("↔", splitX, rect.height / 2);
     }
 
     ctx.restore();
   }, [
-    video,
-    currentFrame,
     annotations,
+    currentFrame,
     tracks,
     maskOpacity,
     showAnnotations,
@@ -399,15 +447,16 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
     currentBox,
     ripples,
     selectedTrackId,
+    video,
   ]);
 
   if (!video) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-[#070b13] text-slate-500 select-none">
-        <Box className="w-12 h-12 mb-3 stroke-[1.5] text-slate-700 animate-pulse" />
-        <p className="text-sm font-medium text-slate-400">No medical video loaded</p>
-        <p className="text-xs text-slate-600 mt-1">
-          Upload a surgical MP4 video or click "Try Surgical Demo" in the left sidebar
+      <div className="flex-1 flex flex-col items-center justify-center bg-zinc-950 text-zinc-500 select-none">
+        <Box className="w-12 h-12 mb-3 stroke-[1.5] text-zinc-700 animate-pulse" />
+        <p className="text-sm font-medium text-zinc-300">No medical video loaded</p>
+        <p className="text-xs text-zinc-500 mt-1">
+          Upload an MP4 video or click "Try Surgical Demo" in the sidebar
         </p>
       </div>
     );
@@ -417,10 +466,77 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
   const activeFrameAnns = annotations.filter((a) => a.frame_idx === currentFrame);
 
   return (
-    <div ref={containerRef} className="flex-1 flex flex-col bg-[#070b13] overflow-hidden select-none relative">
+    <div ref={containerRef} className="flex-1 flex flex-col bg-zinc-950 overflow-hidden select-none relative">
       {/* 1. Center Video + Canvas Overlays Viewport */}
-      <div className="flex-1 relative flex items-center justify-center p-3 overflow-hidden bg-[#070b13]">
-        <div className="relative max-w-full max-h-full aspect-video rounded-xl overflow-hidden border border-slate-800 shadow-2xl bg-black flex items-center justify-center">
+      <div className="flex-1 relative flex items-center justify-center p-3 overflow-hidden bg-zinc-950">
+        {/* CVAT Left Docked Vertical Tool Strip */}
+        <div className="absolute left-3 top-3 z-30 flex flex-col gap-1 bg-zinc-900/90 border border-zinc-800 rounded-lg p-1 backdrop-blur-md shadow-lg">
+          {/* Select Tool */}
+          <button
+            onClick={() => setActiveTool("select")}
+            title="Select & Edit Object (V)"
+            className={`p-2 rounded transition ${
+              activeTool === "select"
+                ? "bg-zinc-800 text-zinc-100 shadow-sm border border-zinc-700/60"
+                : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
+            }`}
+          >
+            <MousePointer className="w-4 h-4" />
+          </button>
+
+          {/* SAM 2 Point Prompt */}
+          <button
+            onClick={() => setActiveTool("point")}
+            title="Interactive SAM 2 Point Prompt (W)"
+            className={`p-2 rounded transition ${
+              activeTool === "point"
+                ? "bg-zinc-800 text-zinc-100 shadow-sm border border-zinc-700/60"
+                : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
+            }`}
+          >
+            <Crosshair className="w-4 h-4 text-cyan-400" />
+          </button>
+
+          {/* SAM 2 Box Prompt */}
+          <button
+            onClick={() => setActiveTool("box")}
+            title="Interactive SAM 2 Box Prompt (B)"
+            className={`p-2 rounded transition ${
+              activeTool === "box"
+                ? "bg-zinc-800 text-zinc-100 shadow-sm border border-zinc-700/60"
+                : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
+            }`}
+          >
+            <Scan className="w-4 h-4 text-amber-400" />
+          </button>
+
+          <div className="h-[1px] w-full bg-zinc-800 my-0.5" />
+
+          {/* Split Compare Toggle */}
+          <button
+            onClick={() => setSplitViewEnabled(!splitViewEnabled)}
+            title="Split View Compare (C)"
+            className={`p-2 rounded transition ${
+              splitViewEnabled
+                ? "bg-zinc-800 text-zinc-100 border border-zinc-700/60"
+                : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
+            }`}
+          >
+            <SplitSquareVertical className="w-4 h-4" />
+          </button>
+
+          {/* 3D Volumetric Mesh Toggle */}
+          <button
+            onClick={() => setIsThreeViewerOpen(true)}
+            title="3D Mesh Reconstruction (Three.js)"
+            className="p-2 rounded text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50 transition"
+          >
+            <Box className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Video Frame Canvas Frame */}
+        <div className="relative max-w-full max-h-full aspect-video rounded-lg overflow-hidden border border-zinc-800 shadow-2xl bg-black flex items-center justify-center">
           {/* HTML5 Native Video Player */}
           <video
             ref={videoRef}
@@ -448,94 +564,115 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
                 : "cursor-default"
             }`}
           />
-
-          {/* Quick 3D Mesh Viewer Button Floating in Viewport */}
-          <button
-            onClick={() => setIsThreeViewerOpen(true)}
-            title="Open 3D Mesh Reconstruction (Three.js)"
-            className="absolute top-3 right-3 z-30 px-3 py-1.5 rounded-lg bg-[#0d131f]/90 border border-cyan-500/40 text-cyan-300 hover:text-white hover:border-cyan-400 hover:bg-cyan-500/20 backdrop-blur-md shadow-lg text-xs font-semibold flex items-center gap-1.5 transition active:scale-95"
-          >
-            <Box className="w-3.5 h-3.5" />
-            <span>3D Mesh View</span>
-          </button>
         </div>
       </div>
 
-      {/* 2. Professional NLE Scrubbing Timeline & Multi-Track Lanes */}
-      <div className="border-t border-[#1e293b] bg-[#0d131f] p-3 space-y-2.5 shrink-0 z-20">
+      {/* 2. CVAT Professional Video Timeline & Multi-Track Scrubber */}
+      <div className="border-t border-zinc-800 bg-zinc-950 px-4 py-2.5 space-y-2 shrink-0 z-20">
         {/* Scrubber Controls Bar */}
         <div className="flex items-center justify-between">
+          {/* Playback Controls (CVAT Standard) */}
           <div className="flex items-center gap-1">
+            {/* Jump to Start */}
+            <button
+              onClick={() => jumpToFrame(0)}
+              title="First Frame (Home)"
+              className="p-1.5 text-zinc-400 hover:text-zinc-100 rounded hover:bg-zinc-900 transition"
+            >
+              <ChevronsLeft className="w-4 h-4" />
+            </button>
+            {/* Jump -10 */}
             <button
               onClick={() => stepFrame(-10)}
-              title="Jump 10 Frames Back (Shift+Left)"
-              className="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition"
+              title="Step -10 Frames (Shift+Left)"
+              className="p-1.5 text-zinc-400 hover:text-zinc-100 rounded hover:bg-zinc-900 transition"
             >
               <SkipBack className="w-4 h-4" />
             </button>
+            {/* Step -1 */}
             <button
               onClick={() => stepFrame(-1)}
-              title="Step 1 Frame Back (Left Arrow)"
-              className="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition"
+              title="Previous Frame (Left Arrow)"
+              className="p-1.5 text-zinc-400 hover:text-zinc-100 rounded hover:bg-zinc-900 transition"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
 
-            {/* Big Play / Pause Button */}
+            {/* Solid White Play/Pause Button (CVAT Pro Style) */}
             <button
               onClick={togglePlay}
               title="Play / Pause (Space)"
-              className="mx-1 w-9 h-9 rounded-full bg-gradient-to-r from-brand-cyan to-brand-violet hover:brightness-110 active:scale-95 flex items-center justify-center text-slate-950 font-bold shadow-lg shadow-cyan-500/20 transition"
+              className="mx-1 w-8 h-8 rounded-full bg-white text-zinc-950 hover:bg-zinc-200 active:scale-95 flex items-center justify-center font-bold shadow-sm transition"
             >
-              {isPlaying ? <Pause className="w-4 h-4 fill-slate-950" /> : <Play className="w-4 h-4 fill-slate-950 ml-0.5" />}
+              {isPlaying ? <Pause className="w-3.5 h-3.5 fill-zinc-950" /> : <Play className="w-3.5 h-3.5 fill-zinc-950 ml-0.5" />}
             </button>
 
+            {/* Step +1 */}
             <button
               onClick={() => stepFrame(1)}
-              title="Step 1 Frame Forward (Right Arrow)"
-              className="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition"
+              title="Next Frame (Right Arrow)"
+              className="p-1.5 text-zinc-400 hover:text-zinc-100 rounded hover:bg-zinc-900 transition"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
+            {/* Jump +10 */}
             <button
               onClick={() => stepFrame(10)}
-              title="Jump 10 Frames Forward (Shift+Right)"
-              className="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition"
+              title="Step +10 Frames (Shift+Right)"
+              className="p-1.5 text-zinc-400 hover:text-zinc-100 rounded hover:bg-zinc-900 transition"
             >
               <SkipForward className="w-4 h-4" />
             </button>
+            {/* Jump to End */}
+            <button
+              onClick={() => jumpToFrame(totalFrames - 1)}
+              title="Last Frame (End)"
+              className="p-1.5 text-zinc-400 hover:text-zinc-100 rounded hover:bg-zinc-900 transition"
+            >
+              <ChevronsRight className="w-4 h-4" />
+            </button>
           </div>
 
-          {/* Exact Timecode and Frame Counter Readout */}
-          <div className="flex items-center gap-3 font-mono text-xs">
-            <span className="text-cyan-400 font-bold">
-              FRAME {String(currentFrame).padStart(4, "0")} / {String(totalFrames).padStart(4, "0")}
-            </span>
-            <span className="text-slate-500">•</span>
-            <span className="text-slate-300">
+          {/* Exact Timecode and Frame Number Input (CVAT Direct Jump) */}
+          <div className="flex items-center gap-2 font-mono text-xs">
+            <span className="text-zinc-400">FRAME</span>
+            <input
+              type="number"
+              min={0}
+              max={totalFrames - 1}
+              value={currentFrame}
+              onChange={(e) => {
+                const val = parseInt(e.target.value, 10);
+                if (!isNaN(val)) jumpToFrame(val);
+              }}
+              className="w-14 bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5 text-center text-xs font-mono text-zinc-100 focus:outline-none focus:border-zinc-600"
+            />
+            <span className="text-zinc-500">/ {totalFrames}</span>
+            <span className="text-zinc-600">•</span>
+            <span className="text-zinc-400">
               {(currentFrame / fps).toFixed(2)}s / {(totalFrames / fps).toFixed(2)}s @ {fps} FPS
             </span>
           </div>
 
-          {/* Quick Display Switches (Split, Opacity, Boxes) */}
+          {/* Quick Display Switches (CVAT Toolbar) */}
           <div className="flex items-center gap-3">
-            {/* Split View Compare */}
-            <button
-              onClick={() => setSplitViewEnabled(!splitViewEnabled)}
-              title="Split View Compare: Compare raw video with tracked masks (C)"
-              className={`px-2.5 py-1 rounded text-xs border font-medium flex items-center gap-1.5 transition ${
-                splitViewEnabled
-                  ? "bg-brand-violet text-white border-brand-violet font-semibold"
-                  : "bg-slate-800/80 border-slate-700 text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              <SplitSquareVertical className="w-3.5 h-3.5" />
-              <span>Split</span>
-            </button>
+            {/* Playback speed selector */}
+            <div className="flex items-center gap-1 text-xs font-mono text-zinc-400">
+              <span>Speed:</span>
+              <select
+                value={playbackSpeed}
+                onChange={(e) => setPlaybackSpeed(parseFloat(e.target.value))}
+                className="bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5 text-xs text-zinc-300 focus:outline-none focus:border-zinc-600"
+              >
+                <option value={0.5}>0.5x</option>
+                <option value={1.0}>1.0x</option>
+                <option value={2.0}>2.0x</option>
+              </select>
+            </div>
 
             {/* Mask Opacity Slider */}
-            <div className="flex items-center gap-1.5 text-xs text-slate-400">
-              <Sliders className="w-3 h-3 text-cyan-400" />
+            <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+              <Sliders className="w-3 h-3 text-zinc-400" />
               <input
                 type="range"
                 min="0.1"
@@ -543,27 +680,27 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
                 step="0.05"
                 value={maskOpacity}
                 onChange={(e) => setMaskOpacity(parseFloat(e.target.value))}
-                className="w-16 accent-brand-cyan h-1 bg-slate-800 rounded cursor-pointer"
+                className="w-16 accent-zinc-300 h-1 bg-zinc-800 rounded cursor-pointer"
               />
             </div>
           </div>
         </div>
 
         {/* Master Timeline Scrubber Bar with Keyframe Markers */}
-        <div className="relative w-full h-6 bg-[#070b13] border border-slate-800 rounded-lg overflow-hidden flex items-center px-1 cursor-pointer">
+        <div className="relative w-full h-5 bg-zinc-900 border border-zinc-800 rounded overflow-hidden flex items-center px-1 cursor-pointer">
           {/* Progress bar */}
           <div
-            className="absolute left-0 top-0 bottom-0 bg-brand-cyan/20 border-r-2 border-brand-cyan pointer-events-none transition-all"
+            className="absolute left-0 top-0 bottom-0 bg-zinc-700/40 border-r-2 border-white pointer-events-none transition-all"
             style={{ width: `${(currentFrame / (totalFrames - 1 || 1)) * 100}%` }}
           />
 
-          {/* Keyframe indicator dots */}
+          {/* Keyframe indicator diamond markers (CVAT Style) */}
           {annotations
             .filter((a) => a.is_keyframe)
             .map((kf, i) => (
               <div
                 key={i}
-                className="absolute top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-amber-400 ring-2 ring-slate-900 pointer-events-none"
+                className="absolute top-1/2 -translate-y-1/2 w-2 h-2 rotate-45 bg-amber-400 ring-1 ring-black pointer-events-none"
                 style={{ left: `${(kf.frame_idx / (totalFrames - 1 || 1)) * 100}%` }}
                 title={`Keyframe at frame ${kf.frame_idx}`}
               />
@@ -585,7 +722,7 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
         </div>
 
         {/* Multi-Track Visual Timeline Lanes (Shows active tracks over time) */}
-        <div className="space-y-1 pt-1 max-h-24 overflow-y-auto">
+        <div className="space-y-1 pt-0.5 max-h-24 overflow-y-auto">
           {tracks.map((track) => {
             const trackAnns = annotations.filter((a) => a.track_id === track.track_id);
             const activeFrames = new Set(trackAnns.map((a) => a.frame_idx));
@@ -596,18 +733,18 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
                 onClick={() => onSelectTrack(track.track_id)}
                 className={`flex items-center gap-2 px-2 py-0.5 rounded cursor-pointer transition text-[11px] ${
                   selectedTrackId === track.track_id
-                    ? "bg-[#162032] border border-cyan-500/40"
-                    : "bg-[#070b13]/60 hover:bg-[#121927]"
+                    ? "bg-zinc-800 border border-zinc-700/80"
+                    : "bg-zinc-900/40 hover:bg-zinc-900 border border-transparent"
                 }`}
               >
                 {/* Track Pill */}
-                <div className="w-24 shrink-0 flex items-center gap-1.5 truncate">
+                <div className="w-28 shrink-0 flex items-center gap-1.5 truncate">
                   <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: track.color }} />
-                  <span className="font-semibold text-slate-200 truncate">{track.label}</span>
+                  <span className="font-medium text-zinc-200 truncate">{track.label}</span>
                 </div>
 
                 {/* Track mini timeline lane */}
-                <div className="flex-1 h-2 bg-slate-900 rounded relative overflow-hidden">
+                <div className="flex-1 h-2 bg-zinc-900 rounded relative overflow-hidden border border-zinc-800/80">
                   {Array.from(activeFrames).map((fIdx) => (
                     <div
                       key={fIdx}

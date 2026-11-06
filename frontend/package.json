@@ -7,17 +7,21 @@
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint",
-    "test": "node --test tests/geometry.test.mjs"
+    "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@types/three": "^0.187.0",
     "clsx": "^2.1.1",
+    "konva": "^9.3.22",
     "lucide-react": "^0.474.0",
     "next": "14.2.23",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-konva": "^18.2.10",
+    "recharts": "^3.10.1",
     "tailwind-merge": "^2.5.4",
-    "three": "^0.187.0"
+    "three": "^0.187.0",
+    "zustand": "^5.0.16"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

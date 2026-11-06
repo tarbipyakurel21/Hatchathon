@@ -13,7 +13,7 @@ services:
       - MODELS_DIR=/app/data/models
       - DEFAULT_MODEL=microscopy-watershed
     volumes:
-      - biolabel-data:/app/data
+      - ./data:/app/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/api/health || exit 1"]

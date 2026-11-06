@@ -10,11 +10,11 @@ DB_PATH = os.path.join(DATA_DIR, "biolabel.db")
 
 def get_connection():
     os.makedirs(DATA_DIR, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, timeout=20.0)
+    conn = sqlite3.connect(DB_PATH, timeout=30.0, isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
     conn.execute("PRAGMA journal_mode = WAL;")
-    conn.execute("PRAGMA busy_timeout = 5000;")
+    conn.execute("PRAGMA busy_timeout = 10000;")
     return conn
 
 def init_db():
@@ -308,7 +308,7 @@ def create_video(
     ts = now_iso()
     conn.execute(
         """
-        INSERT INTO videos
+        INSERT OR REPLACE INTO videos
         (id, filename, file_path, thumbnail_path, duration_seconds, fps, total_frames, width, height, file_size_bytes, status, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?)
         """,
@@ -361,49 +361,51 @@ def save_video_tracks_and_annotations(
     annotations: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
     conn = get_connection()
-    cursor = conn.cursor()
-    ts = now_iso()
+    try:
+        cursor = conn.cursor()
+        ts = now_iso()
 
-    # Clear previous tracks & annotations for this video
-    cursor.execute("DELETE FROM video_tracks WHERE video_id = ?", (video_id,))
-    cursor.execute("DELETE FROM video_frame_annotations WHERE video_id = ?", (video_id,))
+        # Clear previous tracks & annotations for this video
+        cursor.execute("DELETE FROM video_tracks WHERE video_id = ?", (video_id,))
+        cursor.execute("DELETE FROM video_frame_annotations WHERE video_id = ?", (video_id,))
 
-    for tr in tracks:
-        track_pk = tr.get("id") or str(uuid.uuid4())
-        track_id = int(tr.get("track_id", 1))
-        label = tr.get("label", f"Track {track_id}")
-        category = tr.get("category", "instrument")
-        color = tr.get("color", "#06B6D4")
+        for tr in tracks:
+            track_pk = tr.get("id") or str(uuid.uuid4())
+            track_id = int(tr.get("track_id", 1))
+            label = tr.get("label", f"Track {track_id}")
+            category = tr.get("category", "instrument")
+            color = tr.get("color", "#06B6D4")
 
-        cursor.execute(
-            """
-            INSERT INTO video_tracks (id, video_id, track_id, label, category, color, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (track_pk, video_id, track_id, label, category, color, ts, ts)
-        )
+            cursor.execute(
+                """
+                INSERT INTO video_tracks (id, video_id, track_id, label, category, color, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (track_pk, video_id, track_id, label, category, color, ts, ts)
+            )
 
-    for fa in annotations:
-        fa_id = fa.get("id") or str(uuid.uuid4())
-        track_id = int(fa.get("track_id", 1))
-        frame_idx = int(fa.get("frame_idx", 0))
-        polygon_json = json.dumps(fa.get("polygon", []))
-        bbox_json = json.dumps(fa.get("bbox", [0, 0, 0, 0]))
-        area = float(fa.get("area", 0.0))
-        is_keyframe = 1 if fa.get("is_keyframe", False) else 0
-        confidence = float(fa.get("confidence", 1.0))
+        for fa in annotations:
+            fa_id = fa.get("id") or str(uuid.uuid4())
+            track_id = int(fa.get("track_id", 1))
+            frame_idx = int(fa.get("frame_idx", 0))
+            polygon_json = json.dumps(fa.get("polygon", []))
+            bbox_json = json.dumps(fa.get("bbox", [0, 0, 0, 0]))
+            area = float(fa.get("area", 0.0))
+            is_keyframe = 1 if fa.get("is_keyframe", False) else 0
+            confidence = float(fa.get("confidence", 1.0))
 
-        cursor.execute(
-            """
-            INSERT INTO video_frame_annotations
-            (id, video_id, track_id, frame_idx, polygon, bbox, area, is_keyframe, confidence, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (fa_id, video_id, track_id, frame_idx, polygon_json, bbox_json, area, is_keyframe, confidence, ts, ts)
-        )
+            cursor.execute(
+                """
+                INSERT INTO video_frame_annotations
+                (id, video_id, track_id, frame_idx, polygon, bbox, area, is_keyframe, confidence, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (fa_id, video_id, track_id, frame_idx, polygon_json, bbox_json, area, is_keyframe, confidence, ts, ts)
+            )
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+    finally:
+        conn.close()
     return get_video_tracks_and_annotations(video_id)
 
 def get_video_tracks_and_annotations(video_id: str) -> Dict[str, Any]:

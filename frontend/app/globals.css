@@ -3,30 +3,32 @@
 @tailwind utilities;
 
 :root {
-  --background: #070b13;
-  --foreground: #f8fafc;
+  --background: #0B1120;
+  --foreground: #F8FAFC;
+  --sidebar: #0F172A;
+  --elevated: #172033;
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-  overflow: hidden;
+  overflow-x: hidden;
   user-select: none;
 }
 
 /* Custom Sleek Scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #070b13;
+  background: #0B1120;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
+  background: #1E293B;
   border-radius: 9999px;
 }
 
@@ -34,25 +36,23 @@ body {
   background: #334155;
 }
 
-/* Range input styling */
+/* Custom range inputs */
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  background: #06b6d4;
+  background: #22D3EE;
   cursor: pointer;
-  border: 2px solid #0d131f;
-  box-shadow: 0 0 8px rgba(6, 182, 212, 0.4);
+  border: 2px solid #0B1120;
 }
 
 input[type="range"]::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  background: #06b6d4;
+  background: #22D3EE;
   cursor: pointer;
-  border: 2px solid #0d131f;
-  box-shadow: 0 0 8px rgba(6, 182, 212, 0.4);
+  border: 2px solid #0B1120;
 }

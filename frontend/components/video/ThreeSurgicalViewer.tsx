@@ -178,22 +178,22 @@ export const ThreeSurgicalViewer: React.FC<ThreeSurgicalViewerProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-150">
-      <div className="w-full max-w-4xl bg-[#0d131f] border border-cyan-500/30 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+      <div className="w-full max-w-4xl bg-zinc-950 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="px-5 py-3.5 border-b border-[#1e293b] flex items-center justify-between bg-[#121927]">
+        <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/60">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-brand-cyan/15 border border-brand-cyan/30 flex items-center justify-center shadow-lg shadow-cyan-500/20">
-              <Box className="w-4 h-4 text-brand-cyan" />
+            <div className="w-7 h-7 rounded bg-zinc-800 border border-zinc-700/60 flex items-center justify-center">
+              <Box className="w-4 h-4 text-zinc-300" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+              <h3 className="text-xs font-semibold text-zinc-100 flex items-center gap-2">
                 3D Volumetric Mesh & Depth Reconstruction
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-mono">
+                <span className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400 border border-zinc-700/60 font-mono">
                   Three.js WebGL
                 </span>
               </h3>
-              <p className="text-[11px] text-slate-400">
-                Extruded 3D anatomical volume & surgical instruments from SAM 2 Tiny video masks
+              <p className="text-[11px] text-zinc-400">
+                Extruded 3D anatomical volume & instruments from SAM 2 Tiny video masks
               </p>
             </div>
           </div>
@@ -202,10 +202,10 @@ export const ThreeSurgicalViewer: React.FC<ThreeSurgicalViewerProps> = ({
             <button
               onClick={() => setWireframe(!wireframe)}
               title="Toggle Wireframe Mode"
-              className={`px-2.5 py-1 rounded text-xs border font-medium transition ${
+              className={`px-2 py-1 rounded text-xs border font-medium transition ${
                 wireframe
-                  ? "bg-brand-cyan text-slate-950 border-brand-cyan font-bold"
-                  : "bg-slate-800 border-slate-700 text-slate-300 hover:text-white"
+                  ? "bg-zinc-100 text-zinc-950 border-zinc-100 font-semibold"
+                  : "bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white hover:bg-zinc-800"
               }`}
             >
               Wireframe
@@ -213,17 +213,17 @@ export const ThreeSurgicalViewer: React.FC<ThreeSurgicalViewerProps> = ({
             <button
               onClick={() => setAutoRotate(!autoRotate)}
               title="Toggle Auto Rotation"
-              className={`px-2.5 py-1 rounded text-xs border font-medium transition ${
+              className={`px-2 py-1 rounded text-xs border font-medium transition ${
                 autoRotate
-                  ? "bg-purple-500/20 text-purple-300 border-purple-500/40"
-                  : "bg-slate-800 border-slate-700 text-slate-300 hover:text-white"
+                  ? "bg-zinc-800 text-zinc-100 border-zinc-700"
+                  : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800"
               }`}
             >
               Orbit
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              className="p-1.5 rounded text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
             >
               <X className="w-4 h-4" />
             </button>
@@ -231,20 +231,20 @@ export const ThreeSurgicalViewer: React.FC<ThreeSurgicalViewerProps> = ({
         </div>
 
         {/* 3D WebGL Canvas Viewport */}
-        <div ref={mountRef} className="w-full h-[480px] bg-[#070b13] relative cursor-grab active:cursor-grabbing" />
+        <div ref={mountRef} className="w-full h-[480px] bg-zinc-950 relative cursor-grab active:cursor-grabbing" />
 
         {/* Footer controls & telemetry */}
-        <div className="px-5 py-2.5 border-t border-[#1e293b] bg-[#070b13] flex items-center justify-between text-xs text-slate-400 font-mono">
+        <div className="px-4 py-2 border-t border-zinc-800 bg-zinc-900/60 flex items-center justify-between text-xs text-zinc-400 font-mono">
           <div className="flex items-center gap-4">
             <span>
-              Segmented Objects: <b className="text-cyan-400">{frameAnnotations.length}</b>
+              Segmented Objects: <b className="text-zinc-200">{frameAnnotations.length}</b>
             </span>
             <span>
-              Active Tracks: <b className="text-white">{tracks.length}</b>
+              Active Tracks: <b className="text-zinc-200">{tracks.length}</b>
             </span>
           </div>
-          <span className="text-[11px] text-slate-500">
-            Click and drag to rotate • Scroll to zoom
+          <span className="text-[11px] text-zinc-500">
+            Click & drag to rotate • Scroll to zoom
           </span>
         </div>
       </div>
