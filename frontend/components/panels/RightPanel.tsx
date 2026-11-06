@@ -3,6 +3,11 @@
 import React, { useState } from "react";
 import { Annotation, ModelInfo, SegmentationResult } from "@/lib/types";
 import {
+  computePolygonPerimeter,
+  computeCircularity,
+  SCIENTIFIC_PALETTE,
+} from "@/lib/geometry";
+import {
   Sparkles,
   Eye,
   EyeOff,
@@ -14,6 +19,10 @@ import {
   Check,
   Zap,
   SlidersHorizontal,
+  Focus,
+  Maximize,
+  CircleDot,
+  Layers,
 } from "lucide-react";
 
 interface RightPanelProps {
@@ -41,6 +50,7 @@ interface RightPanelProps {
   setSensitivity: (val: number) => void;
   minArea: number;
   setMinArea: (val: number) => void;
+  onOpenAdjustments?: () => void;
 }
 
 export const RightPanel: React.FC<RightPanelProps> = ({
@@ -68,6 +78,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
   setSensitivity,
   minArea,
   setMinArea,
+  onOpenAdjustments,
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingLabel, setEditingLabel] = useState<string>("");
@@ -77,8 +88,21 @@ export const RightPanel: React.FC<RightPanelProps> = ({
     a.label.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const selectedAnnotation = annotations.find(
+    (a) => a.id === selectedAnnotationId
+  );
+
   const totalArea = annotations.reduce((acc, a) => acc + (a.area || 0), 0);
-  const meanArea = annotations.length > 0 ? Math.round(totalArea / annotations.length) : 0;
+  const meanArea =
+    annotations.length > 0 ? Math.round(totalArea / annotations.length) : 0;
+
+  // Selected cell morphometry metrics
+  const selectedPerimeter = selectedAnnotation?.polygon
+    ? computePolygonPerimeter(selectedAnnotation.polygon)
+    : 0;
+  const selectedCircularity = selectedAnnotation
+    ? computeCircularity(selectedAnnotation.area, selectedPerimeter)
+    : 0;
 
   const handleStartRename = (ann: Annotation) => {
     setEditingId(ann.id);
@@ -97,10 +121,18 @@ export const RightPanel: React.FC<RightPanelProps> = ({
     onUpdateAnnotation({ ...ann, is_visible: !ann.is_visible });
   };
 
+  const handleSolo = (ann: Annotation, e: React.MouseEvent) => {
+    e.stopPropagation();
+    // Hide all other annotations, show only this one
+    annotations.forEach((a) => {
+      onUpdateAnnotation({ ...a, is_visible: a.id === ann.id });
+    });
+  };
+
   return (
-    <aside className="w-72 bg-[#0d131f] border-l border-[#1e293b] flex flex-col h-full select-none shrink-0 z-20">
+    <aside className="w-80 bg-[#0d131f] border-l border-[#1e293b] flex flex-col h-full select-none shrink-0 z-20">
       {/* 1. SAM / ComfyUI AI Segmentation Control */}
-      <div className="p-3.5 border-b border-[#1e293b] bg-[#121927]/60 space-y-2.5">
+      <div className="p-3 border-b border-[#1e293b] bg-[#121927]/60 space-y-2.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-300">
             <Zap className="w-3.5 h-3.5 text-brand-cyan" />
@@ -150,7 +182,9 @@ export const RightPanel: React.FC<RightPanelProps> = ({
               <Clock className="w-3 h-3" />
               {lastResult.inference_time_ms} ms
             </span>
-            <span className="text-white font-bold">{lastResult.detected_count} cells</span>
+            <span className="text-white font-bold">
+              {lastResult.detected_count} cells
+            </span>
           </div>
         )}
       </div>
@@ -160,15 +194,25 @@ export const RightPanel: React.FC<RightPanelProps> = ({
         <div className="flex items-center justify-between text-[10.5px] font-semibold text-slate-400 uppercase tracking-wider">
           <span className="flex items-center gap-1">
             <SlidersHorizontal className="w-3 h-3 text-brand-violet" />
-            Controls
+            Display
           </span>
+          {onOpenAdjustments && (
+            <button
+              onClick={onOpenAdjustments}
+              className="text-[10px] text-brand-cyan hover:underline"
+            >
+              Adjust Colors & LUT
+            </button>
+          )}
         </div>
 
         {/* Mask Opacity Slider */}
         <div>
           <div className="flex justify-between text-[11px] text-slate-400 mb-0.5">
-            <span>Opacity</span>
-            <span className="font-mono text-cyan-400">{Math.round(maskOpacity * 100)}%</span>
+            <span>Mask Opacity</span>
+            <span className="font-mono text-cyan-400">
+              {Math.round(maskOpacity * 100)}%
+            </span>
           </div>
           <input
             type="range"
@@ -184,8 +228,10 @@ export const RightPanel: React.FC<RightPanelProps> = ({
         {/* Sensitivity Slider */}
         <div>
           <div className="flex justify-between text-[11px] text-slate-400 mb-0.5">
-            <span>Sensitivity</span>
-            <span className="font-mono text-cyan-400">{Math.round(sensitivity * 100)}%</span>
+            <span>Detection Sensitivity</span>
+            <span className="font-mono text-cyan-400">
+              {Math.round(sensitivity * 100)}%
+            </span>
           </div>
           <input
             type="range"
@@ -233,12 +279,88 @@ export const RightPanel: React.FC<RightPanelProps> = ({
         </div>
       </div>
 
-      {/* 3. Detected Objects / Cut-Outs List */}
+      {/* 3. Selected Cell Morphometry Inspector (Adobe / Fiji Object Inspector) */}
+      {selectedAnnotation && (
+        <div className="p-3 border-b border-[#1e293b] bg-[#162032]/80 space-y-2 animate-in fade-in duration-150">
+          <div className="flex items-center justify-between">
+            <span className="text-[10.5px] uppercase font-bold text-cyan-400 flex items-center gap-1">
+              <CircleDot className="w-3.5 h-3.5" />
+              Morphometry Inspector
+            </span>
+            <button
+              onClick={() => onSelectAnnotation(null)}
+              className="text-[10px] text-slate-400 hover:text-white"
+            >
+              Deselect
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 text-[11px] font-mono">
+            <div className="bg-[#070b13] p-1.5 rounded border border-slate-800">
+              <span className="text-slate-500 block text-[9.5px]">AREA</span>
+              <span className="text-white font-bold">
+                {Math.round(selectedAnnotation.area)} px²
+              </span>
+            </div>
+            <div className="bg-[#070b13] p-1.5 rounded border border-slate-800">
+              <span className="text-slate-500 block text-[9.5px]">PERIMETER</span>
+              <span className="text-white font-bold">
+                {selectedPerimeter} px
+              </span>
+            </div>
+            <div className="bg-[#070b13] p-1.5 rounded border border-slate-800">
+              <span className="text-slate-500 block text-[9.5px]">CIRCULARITY</span>
+              <span
+                className={`font-bold ${
+                  selectedCircularity > 0.75
+                    ? "text-emerald-400"
+                    : selectedCircularity > 0.5
+                    ? "text-amber-400"
+                    : "text-purple-400"
+                }`}
+              >
+                {selectedCircularity}
+              </span>
+            </div>
+            <div className="bg-[#070b13] p-1.5 rounded border border-slate-800">
+              <span className="text-slate-500 block text-[9.5px]">BOUNDS</span>
+              <span className="text-white font-bold">
+                {Math.round(selectedAnnotation.bbox[2])}×
+                {Math.round(selectedAnnotation.bbox[3])} px
+              </span>
+            </div>
+          </div>
+
+          {/* Color Palette Swatches */}
+          <div className="pt-1 flex items-center justify-between">
+            <span className="text-[10px] text-slate-400">Color Swatch</span>
+            <div className="flex items-center gap-1">
+              {SCIENTIFIC_PALETTE.slice(0, 7).map((c) => (
+                <button
+                  key={c}
+                  onClick={() =>
+                    onUpdateAnnotation({ ...selectedAnnotation, color: c })
+                  }
+                  className={`w-3.5 h-3.5 rounded-full transition-transform ${
+                    selectedAnnotation.color === c
+                      ? "scale-125 ring-2 ring-white"
+                      : "hover:scale-110"
+                  }`}
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. Detected Objects / Cut-Outs List */}
       <div className="flex-1 flex flex-col min-h-0">
         <div className="p-2.5 border-b border-[#1e293b] flex items-center justify-between">
           <div className="flex items-center gap-1.5">
+            <Layers className="w-3.5 h-3.5 text-brand-cyan" />
             <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-300">
-              Objects ({annotations.length})
+              Layers ({annotations.length})
             </span>
             <span className="text-[10px] font-mono text-slate-500">
               {meanArea > 0 ? `~${meanArea}px²` : ""}
@@ -304,7 +426,10 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                   {/* Label */}
                   <div className="min-w-0 flex-1">
                     {isEditing ? (
-                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                      <div
+                        className="flex items-center gap-1"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <input
                           type="text"
                           value={editingLabel}
@@ -325,7 +450,9 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                       </div>
                     ) : (
                       <div className="flex items-center justify-between">
-                        <span className="font-medium truncate text-[11.5px]">{ann.label}</span>
+                        <span className="font-medium truncate text-[11.5px]">
+                          {ann.label}
+                        </span>
                         <span className="font-mono text-[10px] text-slate-500 shrink-0 ml-1">
                           {Math.round(ann.area)} px²
                         </span>
@@ -336,6 +463,14 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                   {/* Actions */}
                   {!isEditing && (
                     <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
+                      <button
+                        onClick={(e) => handleSolo(ann, e)}
+                        title="Solo / Isolate Cell"
+                        className="p-1 text-slate-500 hover:text-brand-cyan rounded"
+                      >
+                        <Focus className="w-3 h-3" />
+                      </button>
+
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -351,10 +486,16 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                         onClick={(e) => handleToggleVisibility(ann, e)}
                         title={ann.is_visible ? "Hide" : "Show"}
                         className={`p-1 rounded ${
-                          ann.is_visible ? "text-slate-500 hover:text-slate-300" : "text-amber-400"
+                          ann.is_visible
+                            ? "text-slate-500 hover:text-slate-300"
+                            : "text-amber-400"
                         }`}
                       >
-                        {ann.is_visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                        {ann.is_visible ? (
+                          <Eye className="w-3 h-3" />
+                        ) : (
+                          <EyeOff className="w-3 h-3" />
+                        )}
                       </button>
 
                       <button

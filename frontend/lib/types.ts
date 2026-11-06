@@ -82,4 +82,39 @@ export interface BenchmarkResponse {
   recommendation: string;
 }
 
-export type ToolType = "select" | "box" | "polygon" | "pan";
+export type ToolType =
+  | "select"
+  | "point"
+  | "box"
+  | "polygon"
+  | "ruler"
+  | "pan";
+
+export type ScientificLUT =
+  | "original"
+  | "dapi"
+  | "gfp"
+  | "rfp"
+  | "fire"
+  | "viridis";
+
+export interface ImageAdjustments {
+  brightness: number; // -100 to 100
+  contrast: number;   // -100 to 100
+  exposure: number;   // 0.5 to 2.5 (gamma)
+  invert: boolean;
+  lut: ScientificLUT;
+}
+
+export interface Measurement {
+  start: Point;
+  end: Point;
+  distancePx: number;
+  distanceUm: number;
+  angleDeg: number;
+}
+
+export interface SplitViewConfig {
+  enabled: boolean;
+  position: number; // 0.0 to 1.0 (horizontal position across canvas)
+}

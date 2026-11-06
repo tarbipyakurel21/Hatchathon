@@ -60,6 +60,23 @@ export function distanceToSegment(p: Point, v: Point, w: Point): { dist: number;
   return { dist: distanceBetween(p, proj), proj };
 }
 
+export function computePolygonPerimeter(pts: Point[]): number {
+  if (!pts || pts.length < 2) return 0;
+  let perimeter = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const j = (i + 1) % pts.length;
+    perimeter += distanceBetween(pts[i], pts[j]);
+  }
+  return Math.round(perimeter * 10) / 10;
+}
+
+export function computeCircularity(area: number, perimeter: number): number {
+  if (perimeter <= 0 || area <= 0) return 0;
+  // Circularity = 4 * pi * Area / Perimeter^2 (1.0 = perfect circle, lower = elongated)
+  const circularity = (4 * Math.PI * area) / (perimeter * perimeter);
+  return Math.min(1.0, Math.round(circularity * 100) / 100);
+}
+
 export const SCIENTIFIC_PALETTE = [
   "#06B6D4", // Cyan
   "#8B5CF6", // Violet

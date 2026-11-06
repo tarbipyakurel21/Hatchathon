@@ -8,6 +8,8 @@ import {
   ModelInfo,
   SegmentationResult,
   ToolType,
+  ImageAdjustments,
+  SplitViewConfig,
 } from "@/lib/types";
 import {
   fetchDatasets,
@@ -30,6 +32,7 @@ import { TopToolbar } from "@/components/layout/TopToolbar";
 import { LeftSidebar } from "@/components/layout/LeftSidebar";
 import { RightPanel } from "@/components/panels/RightPanel";
 import { AnnotationCanvas } from "@/components/canvas/AnnotationCanvas";
+import { AdjustmentsPanel } from "@/components/panels/AdjustmentsPanel";
 import { ExportModal } from "@/components/panels/ExportModal";
 import { BenchmarkModal } from "@/components/panels/BenchmarkModal";
 
@@ -51,6 +54,20 @@ export default function WorkspacePage() {
   const [showAnnotations, setShowAnnotations] = useState<boolean>(true);
   const [showBoundingBoxes, setShowBoundingBoxes] = useState<boolean>(false);
   const [showLabels, setShowLabels] = useState<boolean>(false);
+
+  // Adobe / Scientific Visualization State
+  const [adjustments, setAdjustments] = useState<ImageAdjustments>({
+    brightness: 0,
+    contrast: 0,
+    exposure: 1.0,
+    invert: false,
+    lut: "original",
+  });
+  const [isAdjustmentsOpen, setIsAdjustmentsOpen] = useState<boolean>(false);
+  const [splitView, setSplitView] = useState<SplitViewConfig>({
+    enabled: false,
+    position: 0.5,
+  });
 
   // Model Parameter State
   const [sensitivity, setSensitivity] = useState<number>(0.4);
@@ -100,10 +117,9 @@ export default function WorkspacePage() {
     setHasUnsavedChanges(true);
   }, [future, annotations]);
 
-  // Global Keyboard Shortcuts (Ctrl/Cmd+Z for Undo, Ctrl/Cmd+Shift+Z or Ctrl+Y for Redo)
+  // Global Keyboard Shortcuts
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger if typing in an input or textarea
       if (
         document.activeElement?.tagName === "INPUT" ||
         document.activeElement?.tagName === "TEXTAREA"
@@ -115,14 +131,21 @@ export default function WorkspacePage() {
       const modifier = isMac ? e.metaKey : e.ctrlKey;
 
       if (!modifier) {
-        if (e.key.toLowerCase() === "s" || e.key.toLowerCase() === "v") {
+        const key = e.key.toLowerCase();
+        if (key === "s" || key === "v") {
           setActiveTool("select");
-        } else if (e.key.toLowerCase() === "b") {
+        } else if (key === "w" || key === "a") {
+          setActiveTool("point");
+        } else if (key === "b") {
           setActiveTool("box");
-        } else if (e.key.toLowerCase() === "p") {
+        } else if (key === "p") {
           setActiveTool("polygon");
-        } else if (e.key.toLowerCase() === "h") {
+        } else if (key === "r" || key === "m") {
+          setActiveTool("ruler");
+        } else if (key === "h") {
           setActiveTool("pan");
+        } else if (key === "c") {
+          setSplitView((s) => ({ ...s, enabled: !s.enabled }));
         }
       }
 
@@ -160,7 +183,6 @@ export default function WorkspacePage() {
           setDatasets(datasetsData);
           setSelectedDataset(datasetsData[0]);
         } else {
-          // If no datasets exist yet, initialize demo automatically
           const demoRes = await loadDemoDataset();
           setDatasets([demoRes.dataset]);
           setSelectedDataset(demoRes.dataset);
@@ -234,7 +256,6 @@ export default function WorkspacePage() {
       const saved = await updateAnnotations(selectedImageId, annotations);
       setAnnotations(saved);
       setHasUnsavedChanges(false);
-      // Update image item count in state
       setImages((prev) =>
         prev.map((img) =>
           img.id === selectedImageId
@@ -249,73 +270,72 @@ export default function WorkspacePage() {
     }
   };
 
-  // AI Auto-Annotate Trigger
+  // Run AI Auto-Annotation
   const handleAutoAnnotate = async () => {
-    if (!selectedImageId) return;
+    if (!selectedImageId || isAnnotating) return;
     setIsAnnotating(true);
-    setProcessingStatus(`Segmenting with ${selectedModelId}...`);
+    setProcessingStatus("Inference running...");
+
     try {
-      const res = await segmentImage(selectedImageId, {
+      const result = await segmentImage(selectedImageId, {
         model_id: selectedModelId,
         threshold: sensitivity,
         min_area: minArea,
       });
 
-      setLastResult(res);
-      pushHistory(res.annotations);
-      setHasUnsavedChanges(false); // Already saved on backend during segment
-
-      // Update image count in list
+      setLastResult(result);
+      pushHistory(result.annotations || []);
+      setProcessingStatus(`Detected ${result.detected_count} cells`);
       setImages((prev) =>
         prev.map((img) =>
           img.id === selectedImageId
-            ? { ...img, annotation_count: res.detected_count }
+            ? { ...img, annotation_count: result.detected_count }
             : img
         )
       );
-      setProcessingStatus(`Detected ${res.detected_count} objects in ${res.inference_time_ms}ms`);
     } catch (err: any) {
-      alert(`Segmentation error: ${err.message}`);
+      alert(`Segmentation failed: ${err.message}`);
       setProcessingStatus("Error");
     } finally {
       setIsAnnotating(false);
     }
   };
 
-  // SAM-style Box Prompt Segment
+  // SAM Box Prompt / Point Prompt Segmentation
   const handleSegmentBox = async (bbox: [number, number, number, number]) => {
     if (!selectedImageId) return;
-    setIsAnnotating(true);
-    setProcessingStatus("Segmenting prompt box...");
+    setProcessingStatus("Prompt segmenting...");
     try {
-      const res = await segmentBox(selectedImageId, {
+      const newAnns = await segmentBox(selectedImageId, {
         bbox,
         model_id: selectedModelId,
         threshold: sensitivity,
         min_area: minArea,
       });
-      pushHistory(res);
-      setHasUnsavedChanges(false);
-      setImages((prev) =>
-        prev.map((img) =>
-          img.id === selectedImageId ? { ...img, annotation_count: res.length } : img
-        )
-      );
-      setProcessingStatus(`Added objects from box prompt`);
+
+      if (newAnns && newAnns.length > 0) {
+        const coloredAnns = newAnns.map((a, i) => ({
+          ...a,
+          color: getPaletteColor(annotations.length + i),
+        }));
+        pushHistory([...annotations, ...coloredAnns]);
+        setSelectedAnnotationId(coloredAnns[0].id);
+        setProcessingStatus(`Added ${newAnns.length} object`);
+      } else {
+        setProcessingStatus("No object detected in area");
+      }
     } catch (err: any) {
-      alert(`Box segmentation error: ${err.message}`);
-    } finally {
-      setIsAnnotating(false);
+      alert(`Prompt segmentation error: ${err.message}`);
+      setProcessingStatus("Error");
     }
   };
 
-  // SAM-style Clear All
+  // Clear all annotations on current image
   const handleClearAll = async () => {
     if (!selectedImageId) return;
     try {
       await clearAllAnnotations(selectedImageId);
       pushHistory([]);
-      setSelectedAnnotationId(null);
       setImages((prev) =>
         prev.map((img) =>
           img.id === selectedImageId ? { ...img, annotation_count: 0 } : img
@@ -323,66 +343,11 @@ export default function WorkspacePage() {
       );
       setProcessingStatus("Cleared");
     } catch (err: any) {
-      alert(`Clear failed: ${err.message}`);
+      alert(`Failed to clear: ${err.message}`);
     }
   };
 
-  // Annotation Mutations
-  const handleAddAnnotation = (annData: Partial<Annotation>) => {
-    const nextIndex = annotations.length + 1;
-    const newAnn: Annotation = {
-      id: crypto.randomUUID ? crypto.randomUUID() : `ann_${Date.now()}`,
-      label: `Cell ${String(nextIndex).padStart(3, "0")}`,
-      category: "cell",
-      color: getPaletteColor(nextIndex - 1),
-      polygon: annData.polygon || [],
-      bbox: annData.bbox || [0, 0, 0, 0],
-      area: annData.area || 0,
-      is_visible: true,
-      model_name: "manual",
-    };
-    pushHistory([...annotations, newAnn]);
-    setSelectedAnnotationId(newAnn.id);
-  };
-
-  const handleUpdateAnnotation = (updated: Annotation) => {
-    const newAnns = annotations.map((a) => (a.id === updated.id ? updated : a));
-    pushHistory(newAnns);
-  };
-
-  const handleDeleteAnnotation = (id: string) => {
-    const newAnns = annotations.filter((a) => a.id !== id);
-    pushHistory(newAnns);
-    if (selectedAnnotationId === id) {
-      setSelectedAnnotationId(null);
-    }
-  };
-
-  const handleDeleteSelected = () => {
-    if (selectedAnnotationId) {
-      handleDeleteAnnotation(selectedAnnotationId);
-    }
-  };
-
-  // Demo Trigger CTA
-  const handleTriggerDemo = async () => {
-    try {
-      setProcessingStatus("Loading demo dataset...");
-      const demoRes = await loadDemoDataset();
-      const updatedDatasets = await fetchDatasets();
-      setDatasets(updatedDatasets);
-      setSelectedDataset(demoRes.dataset);
-      setImages(demoRes.images);
-      if (demoRes.first_image_id) {
-        setSelectedImageId(demoRes.first_image_id);
-      }
-      setProcessingStatus("Demo loaded");
-    } catch (err: any) {
-      alert(`Demo load failed: ${err.message}`);
-    }
-  };
-
-  // Upload handler
+  // Upload Images
   const handleUploadFiles = async (files: File[]) => {
     if (!selectedDataset) return;
     setIsUploading(true);
@@ -399,13 +364,14 @@ export default function WorkspacePage() {
     }
   };
 
-  // Delete image handler
-  const handleDeleteImage = async (imageId: string) => {
+  // Delete Image
+  const handleDeleteImage = async (imgId: string) => {
+    if (!confirm("Are you sure you want to delete this image?")) return;
     try {
-      await deleteImage(imageId);
-      const remaining = images.filter((img) => img.id !== imageId);
-      setImages(remaining);
-      if (selectedImageId === imageId) {
+      await deleteImage(imgId);
+      setImages((prev) => prev.filter((img) => img.id !== imgId));
+      if (selectedImageId === imgId) {
+        const remaining = images.filter((img) => img.id !== imgId);
         setSelectedImageId(remaining.length > 0 ? remaining[0].id : null);
       }
     } catch (err: any) {
@@ -413,11 +379,70 @@ export default function WorkspacePage() {
     }
   };
 
-  const imageUrl = selectedImageId ? getImageUrl(selectedImageId) : null;
+  // Load Demo Workflow
+  const handleTriggerDemo = async () => {
+    setProcessingStatus("Loading demo images...");
+    try {
+      const demoRes = await loadDemoDataset();
+      setDatasets((prev) => {
+        const exists = prev.find((d) => d.id === demoRes.dataset.id);
+        return exists ? prev : [demoRes.dataset, ...prev];
+      });
+      setSelectedDataset(demoRes.dataset);
+      setImages(demoRes.images);
+      if (demoRes.first_image_id) {
+        setSelectedImageId(demoRes.first_image_id);
+      }
+      setProcessingStatus("Demo ready");
+    } catch (err: any) {
+      alert(`Demo load failed: ${err.message}`);
+    }
+  };
+
+  // Annotation Manipulation
+  const handleUpdateAnnotation = (updated: Annotation) => {
+    const updatedList = annotations.map((a) =>
+      a.id === updated.id ? updated : a
+    );
+    pushHistory(updatedList);
+  };
+
+  const handleAddAnnotation = (annData: Partial<Annotation>) => {
+    const newId = `ann_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const newIndex = annotations.length + 1;
+    const newAnn: Annotation = {
+      id: newId,
+      image_id: selectedImageId || undefined,
+      label: `Cell ${String(newIndex).padStart(3, "0")}`,
+      category: "cell",
+      color: getPaletteColor(annotations.length),
+      polygon: annData.polygon || [],
+      bbox: annData.bbox || [0, 0, 0, 0],
+      area: annData.area || 0,
+      is_visible: true,
+      model_name: "manual",
+    };
+    pushHistory([...annotations, newAnn]);
+    setSelectedAnnotationId(newId);
+  };
+
+  const handleDeleteAnnotation = (id: string) => {
+    const filtered = annotations.filter((a) => a.id !== id);
+    pushHistory(filtered);
+    if (selectedAnnotationId === id) {
+      setSelectedAnnotationId(null);
+    }
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedAnnotationId) {
+      handleDeleteAnnotation(selectedAnnotationId);
+    }
+  };
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#070b13]">
-      {/* Top Navigation Toolbar */}
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#070b13] text-slate-100 font-sans antialiased">
+      {/* 1. Adobe / SAM Top Toolbar */}
       <TopToolbar
         currentImage={currentImage}
         annotationCount={annotations.length}
@@ -434,12 +459,18 @@ export default function WorkspacePage() {
         onSave={handleSaveAnnotations}
         onOpenExport={() => setIsExportOpen(true)}
         processingStatus={processingStatus}
-        isProcessing={isAnnotating}
+        isProcessing={isAnnotating || isUploading}
+        splitViewEnabled={splitView.enabled}
+        onToggleSplitView={() =>
+          setSplitView((s) => ({ ...s, enabled: !s.enabled }))
+        }
+        isAdjustmentsOpen={isAdjustmentsOpen}
+        onToggleAdjustments={() => setIsAdjustmentsOpen(!isAdjustmentsOpen)}
       />
 
-      {/* Main Workspace Body */}
+      {/* 2. Workspace Center Area */}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Left Sidebar */}
+        {/* Left Sidebar: Datasets & Images */}
         <LeftSidebar
           datasets={datasets}
           selectedDataset={selectedDataset}
@@ -454,10 +485,10 @@ export default function WorkspacePage() {
           isUploading={isUploading}
         />
 
-        {/* Center Interactive Canvas */}
-        <main className="flex-1 relative overflow-hidden bg-[#070b13]">
+        {/* Center Panel: Interactive High-Precision Canvas */}
+        <main className="flex-1 flex flex-col relative overflow-hidden">
           <AnnotationCanvas
-            imageUrl={imageUrl}
+            imageUrl={selectedImageId ? getImageUrl(selectedImageId) : null}
             annotations={annotations}
             selectedId={selectedAnnotationId}
             activeTool={activeTool}
@@ -465,15 +496,36 @@ export default function WorkspacePage() {
             showBoundingBoxes={showBoundingBoxes}
             showLabels={showLabels}
             showAnnotations={showAnnotations}
+            adjustments={adjustments}
+            splitView={splitView}
+            onSplitViewChange={setSplitView}
             onSelectAnnotation={setSelectedAnnotationId}
             onUpdateAnnotation={handleUpdateAnnotation}
             onAddAnnotation={handleAddAnnotation}
             onDeleteSelected={handleDeleteSelected}
             onSegmentBox={handleSegmentBox}
+            isAnnotating={isAnnotating}
+          />
+
+          {/* Floating Lightroom / Adobe Camera Raw Adjustments HUD */}
+          <AdjustmentsPanel
+            isOpen={isAdjustmentsOpen}
+            onClose={() => setIsAdjustmentsOpen(false)}
+            adjustments={adjustments}
+            onChange={setAdjustments}
+            onReset={() =>
+              setAdjustments({
+                brightness: 0,
+                contrast: 0,
+                exposure: 1.0,
+                invert: false,
+                lut: "original",
+              })
+            }
           />
         </main>
 
-        {/* Right Properties & AI Panel */}
+        {/* Right Panel: AI Models, Controls, Layer Stack & Morphometry */}
         <RightPanel
           models={models}
           selectedModelId={selectedModelId}
@@ -499,22 +551,27 @@ export default function WorkspacePage() {
           setSensitivity={setSensitivity}
           minArea={minArea}
           setMinArea={setMinArea}
+          onOpenAdjustments={() => setIsAdjustmentsOpen(true)}
         />
       </div>
 
-      {/* Export Dataset Modal */}
-      <ExportModal
-        isOpen={isExportOpen}
-        onClose={() => setIsExportOpen(false)}
-        dataset={selectedDataset}
-      />
+      {/* 3. Export Modal */}
+      {selectedDataset && (
+        <ExportModal
+          isOpen={isExportOpen}
+          onClose={() => setIsExportOpen(false)}
+          dataset={selectedDataset}
+        />
+      )}
 
-      {/* Benchmark Model Comparison Modal */}
-      <BenchmarkModal
-        isOpen={isBenchmarkOpen}
-        onClose={() => setIsBenchmarkOpen(false)}
-        currentImage={currentImage}
-      />
+      {/* 4. Model Benchmark Modal */}
+      {currentImage && (
+        <BenchmarkModal
+          isOpen={isBenchmarkOpen}
+          onClose={() => setIsBenchmarkOpen(false)}
+          currentImage={currentImage}
+        />
+      )}
     </div>
   );
 }
