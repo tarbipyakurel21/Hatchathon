@@ -10,9 +10,11 @@ DB_PATH = os.path.join(DATA_DIR, "biolabel.db")
 
 def get_connection():
     os.makedirs(DATA_DIR, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=20.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
+    conn.execute("PRAGMA journal_mode = WAL;")
+    conn.execute("PRAGMA busy_timeout = 5000;")
     return conn
 
 def init_db():
@@ -67,6 +69,62 @@ def init_db():
 
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_images_dataset_id ON images(dataset_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_annotations_image_id ON annotations(image_id);")
+
+    # ------------------------------------------
+    # MedData Studio: Surgical Video & Tracking
+    # ------------------------------------------
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS videos (
+        id TEXT PRIMARY KEY,
+        filename TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        thumbnail_path TEXT,
+        duration_seconds REAL NOT NULL,
+        fps REAL NOT NULL,
+        total_frames INTEGER NOT NULL,
+        width INTEGER NOT NULL,
+        height INTEGER NOT NULL,
+        file_size_bytes INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'ready',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS video_tracks (
+        id TEXT PRIMARY KEY,
+        video_id TEXT NOT NULL,
+        track_id INTEGER NOT NULL,
+        label TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'instrument',
+        color TEXT NOT NULL DEFAULT '#06B6D4',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE CASCADE
+    );
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS video_frame_annotations (
+        id TEXT PRIMARY KEY,
+        video_id TEXT NOT NULL,
+        track_id INTEGER NOT NULL,
+        frame_idx INTEGER NOT NULL,
+        polygon TEXT NOT NULL, -- JSON array of [x, y]
+        bbox TEXT NOT NULL,    -- JSON array of [x, y, w, h]
+        area REAL NOT NULL,
+        is_keyframe INTEGER NOT NULL DEFAULT 0,
+        confidence REAL NOT NULL DEFAULT 1.0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE CASCADE
+    );
+    """)
+
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_video_tracks_video_id ON video_tracks(video_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_video_frame_annotations ON video_frame_annotations(video_id, frame_idx);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_video_track_frame ON video_frame_annotations(video_id, track_id);")
 
     conn.commit()
     conn.close()
@@ -217,7 +275,7 @@ def save_annotations_for_image(image_id: str, annotations: List[Dict[str, Any]])
         
         cursor.execute(
             """
-            INSERT INTO annotations 
+            INSERT OR REPLACE INTO annotations 
             (id, image_id, label, category, color, polygon, bbox, area, is_visible, model_name, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
@@ -228,3 +286,160 @@ def save_annotations_for_image(image_id: str, annotations: List[Dict[str, Any]])
     conn.commit()
     conn.close()
     return get_annotations_for_image(image_id)
+
+# ------------------------------------------
+# MedData Studio: Video & Tracking DB Helpers
+# ------------------------------------------
+
+def create_video(
+    filename: str,
+    file_path: str,
+    thumbnail_path: Optional[str],
+    duration_seconds: float,
+    fps: float,
+    total_frames: int,
+    width: int,
+    height: int,
+    file_size_bytes: int,
+    video_id: Optional[str] = None
+) -> Dict[str, Any]:
+    conn = get_connection()
+    vid_id = video_id or str(uuid.uuid4())
+    ts = now_iso()
+    conn.execute(
+        """
+        INSERT INTO videos
+        (id, filename, file_path, thumbnail_path, duration_seconds, fps, total_frames, width, height, file_size_bytes, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?)
+        """,
+        (vid_id, filename, file_path, thumbnail_path, duration_seconds, fps, total_frames, width, height, file_size_bytes, ts, ts)
+    )
+    conn.commit()
+    conn.close()
+    return get_video(vid_id)
+
+def get_video(video_id: str) -> Optional[Dict[str, Any]]:
+    conn = get_connection()
+    row = conn.execute(
+        """
+        SELECT v.*,
+               (SELECT COUNT(*) FROM video_tracks t WHERE t.video_id = v.id) as track_count,
+               (SELECT COUNT(*) FROM video_frame_annotations fa WHERE fa.video_id = v.id) as frame_annotation_count
+        FROM videos v WHERE v.id = ?
+        """,
+        (video_id,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    return dict(row)
+
+def list_videos() -> List[Dict[str, Any]]:
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT v.*,
+               (SELECT COUNT(*) FROM video_tracks t WHERE t.video_id = v.id) as track_count,
+               (SELECT COUNT(*) FROM video_frame_annotations fa WHERE fa.video_id = v.id) as frame_annotation_count
+        FROM videos v ORDER BY v.created_at DESC
+        """
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def delete_video(video_id: str) -> bool:
+    conn = get_connection()
+    cursor = conn.execute("DELETE FROM videos WHERE id = ?", (video_id,))
+    conn.commit()
+    deleted = cursor.rowcount > 0
+    conn.close()
+    return deleted
+
+def save_video_tracks_and_annotations(
+    video_id: str,
+    tracks: List[Dict[str, Any]],
+    annotations: List[Dict[str, Any]]
+) -> Dict[str, Any]:
+    conn = get_connection()
+    cursor = conn.cursor()
+    ts = now_iso()
+
+    # Clear previous tracks & annotations for this video
+    cursor.execute("DELETE FROM video_tracks WHERE video_id = ?", (video_id,))
+    cursor.execute("DELETE FROM video_frame_annotations WHERE video_id = ?", (video_id,))
+
+    for tr in tracks:
+        track_pk = tr.get("id") or str(uuid.uuid4())
+        track_id = int(tr.get("track_id", 1))
+        label = tr.get("label", f"Track {track_id}")
+        category = tr.get("category", "instrument")
+        color = tr.get("color", "#06B6D4")
+
+        cursor.execute(
+            """
+            INSERT INTO video_tracks (id, video_id, track_id, label, category, color, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (track_pk, video_id, track_id, label, category, color, ts, ts)
+        )
+
+    for fa in annotations:
+        fa_id = fa.get("id") or str(uuid.uuid4())
+        track_id = int(fa.get("track_id", 1))
+        frame_idx = int(fa.get("frame_idx", 0))
+        polygon_json = json.dumps(fa.get("polygon", []))
+        bbox_json = json.dumps(fa.get("bbox", [0, 0, 0, 0]))
+        area = float(fa.get("area", 0.0))
+        is_keyframe = 1 if fa.get("is_keyframe", False) else 0
+        confidence = float(fa.get("confidence", 1.0))
+
+        cursor.execute(
+            """
+            INSERT INTO video_frame_annotations
+            (id, video_id, track_id, frame_idx, polygon, bbox, area, is_keyframe, confidence, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (fa_id, video_id, track_id, frame_idx, polygon_json, bbox_json, area, is_keyframe, confidence, ts, ts)
+        )
+
+    conn.commit()
+    conn.close()
+    return get_video_tracks_and_annotations(video_id)
+
+def get_video_tracks_and_annotations(video_id: str) -> Dict[str, Any]:
+    conn = get_connection()
+    track_rows = conn.execute(
+        "SELECT * FROM video_tracks WHERE video_id = ? ORDER BY track_id ASC",
+        (video_id,)
+    ).fetchall()
+    
+    fa_rows = conn.execute(
+        "SELECT * FROM video_frame_annotations WHERE video_id = ? ORDER BY frame_idx ASC, track_id ASC",
+        (video_id,)
+    ).fetchall()
+    conn.close()
+
+    tracks = [dict(t) for t in track_rows]
+    annotations = []
+    for r in fa_rows:
+        d = dict(r)
+        d["polygon"] = json.loads(d["polygon"])
+        d["bbox"] = json.loads(d["bbox"])
+        d["is_keyframe"] = bool(d["is_keyframe"])
+        annotations.append(d)
+
+    return {
+        "video_id": video_id,
+        "tracks": tracks,
+        "annotations": annotations
+    }
+
+def delete_video_track(video_id: str, track_id: int) -> bool:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM video_tracks WHERE video_id = ? AND track_id = ?", (video_id, track_id))
+    cursor.execute("DELETE FROM video_frame_annotations WHERE video_id = ? AND track_id = ?", (video_id, track_id))
+    conn.commit()
+    deleted = cursor.rowcount > 0
+    conn.close()
+    return deleted

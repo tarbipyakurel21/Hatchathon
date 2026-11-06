@@ -8,17 +8,20 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.app.services.database import init_db
 from backend.app.services.image_io import ensure_storage_dirs
+from backend.app.services.video_io import ensure_video_storage_dirs
 from backend.app.services.demo_service import ensure_demo_dataset
 from backend.app.services.segmentation.registry import registry
 from backend.app.api.datasets import router as datasets_router
 from backend.app.api.images import router as images_router
 from backend.app.api.models import router as models_router
 from backend.app.api.benchmark import router as benchmark_router
+from backend.app.api.videos import router as videos_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     ensure_storage_dirs()
+    ensure_video_storage_dirs()
     init_db()
     try:
         # Pre-seed demo microscopy dataset
@@ -29,8 +32,8 @@ async def lifespan(app: FastAPI):
     # Shutdown
 
 app = FastAPI(
-    title="BioLabel API",
-    description="Backend inference & annotation persistence for BioLabel — AI-Powered Biomedical Image Annotation Platform.",
+    title="BioLabel & MedData Studio Unified API",
+    description="Backend AI inference & annotation platform for Biomedical Microscopy Images (BioLabel) and Surgical Videos with SAM 2 Tracking (MedData Studio).",
     version="1.0.0",
     lifespan=lifespan,
     docs_url="/docs",
@@ -73,6 +76,7 @@ app.include_router(datasets_router)
 app.include_router(images_router)
 app.include_router(models_router)
 app.include_router(benchmark_router)
+app.include_router(videos_router)
 
 if __name__ == "__main__":
     import uvicorn
