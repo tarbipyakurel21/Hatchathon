@@ -3,6 +3,7 @@ import io
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
 from fastapi.responses import FileResponse, Response
 from typing import List, Optional
+from pydantic import BaseModel
 from PIL import Image
 
 from backend.app.schemas.image import ImageResponse, ImageDetailResponse
@@ -172,6 +173,79 @@ async def segment_image(id: str, req: SegmentationRequest = SegmentationRequest(
             }
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Segmentation failed: {str(e)}")
+
+class BoxSegmentRequest(BaseModel):
+    bbox: List[float] # [x, y, w, h] in image coordinates
+    model_id: Optional[str] = None
+    threshold: Optional[float] = 0.4
+    min_area: Optional[int] = 20
+
+@router.post("/{id}/segment-box", response_model=List[AnnotationResponse])
+async def segment_box(id: str, req: BoxSegmentRequest):
+    """
+    SAM-style interactive box prompt segmentation.
+    Segments cellular structures specifically inside a drawn bounding box sub-region.
+    """
+    img = get_image(id)
+    if not img or not os.path.exists(img["file_path"]):
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    bx, by, bw, bh = [int(v) for v in req.bbox]
+    img_rgb = load_image_rgb(img["file_path"])
+    ih, iw = img_rgb.shape[:2]
+
+    # Clip box coordinates
+    x1 = max(0, min(bx, iw - 1))
+    y1 = max(0, min(by, ih - 1))
+    x2 = max(x1 + 5, min(bx + bw, iw))
+    y2 = max(y1 + 5, min(by + bh, ih))
+
+    crop = img_rgb[y1:y2, x1:x2]
+    if crop.size == 0 or crop.shape[0] < 5 or crop.shape[1] < 5:
+        raise HTTPException(status_code=400, detail="Invalid crop area")
+
+    model = registry.get_model(req.model_id)
+
+    async with registry.semaphore:
+        result = model.predict(
+            crop,
+            min_area=req.min_area,
+            max_area=100000,
+            threshold=req.threshold
+        )
+
+    # Offset detected polygons back to original image coordinates
+    existing_annotations = get_annotations_for_image(id)
+    start_idx = len(existing_annotations) + 1
+    new_annotations = []
+
+    for ann in result["annotations"]:
+        offset_poly = [[pt[0] + x1, pt[1] + y1] for pt in ann["polygon"]]
+        obx = ann["bbox"][0] + x1
+        oby = ann["bbox"][1] + y1
+        new_annotations.append({
+            "id": ann["id"],
+            "label": f"Cell {start_idx:03d}",
+            "category": "cell",
+            "color": ann["color"],
+            "polygon": offset_poly,
+            "bbox": [obx, oby, ann["bbox"][2], ann["bbox"][3]],
+            "area": ann["area"],
+            "is_visible": True,
+            "model_name": f"{model.name} (Box Prompt)"
+        })
+        start_idx += 1
+
+    combined = existing_annotations + new_annotations
+    return save_annotations_for_image(id, combined)
+
+@router.delete("/{id}/annotations", response_model=List[AnnotationResponse])
+async def clear_annotations(id: str):
+    """Clear all annotations for an image (SAM Clear All button)."""
+    img = get_image(id)
+    if not img:
+        raise HTTPException(status_code=404, detail="Image not found")
+    return save_annotations_for_image(id, [])
 
 @router.get("/{id}/annotations", response_model=List[AnnotationResponse])
 async def get_annotations(id: str):

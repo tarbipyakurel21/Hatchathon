@@ -127,14 +127,29 @@ def test_dataset_lifecycle(client):
     assert len(updated_anns) == 1
     assert updated_anns[0]["label"] == "Manual Nucleus 001"
 
-    # 7. Export dataset
+    # 7. SAM-style Box Prompt segmentation
+    box_res = client.post(
+        f"/api/images/{image_id}/segment-box",
+        json={"bbox": [10.0, 10.0, 100.0, 100.0], "threshold": 0.4}
+    )
+    assert box_res.status_code == 200
+
+    # 8. SAM-style Clear All annotations
+    clear_res = client.delete(f"/api/images/{image_id}/annotations")
+    assert clear_res.status_code == 200
+    assert len(clear_res.json()) == 0
+
+    # Re-save dummy annotation for export verification
+    client.put(f"/api/images/{image_id}/annotations", json={"annotations": [dummy_annotation]})
+
+    # 9. Export dataset
     export_res = client.post(f"/api/datasets/{dataset_id}/export")
     assert export_res.status_code == 200
     export_data = export_res.json()
     assert export_data["status"] == "success"
     assert "download_url" in export_data
 
-    # 8. Download export zip
+    # 10. Download export zip
     download_res = client.get(export_data["download_url"])
     assert download_res.status_code == 200
     assert download_res.headers["content-type"] == "application/zip"

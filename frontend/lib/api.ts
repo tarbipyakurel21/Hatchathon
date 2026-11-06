@@ -135,6 +135,32 @@ export async function fetchAnnotations(
   return handleResponse<Annotation[]>(res);
 }
 
+export async function clearAllAnnotations(
+  imageId: string
+): Promise<Annotation[]> {
+  const res = await fetch(`${API_BASE}/api/images/${imageId}/annotations`, {
+    method: "DELETE",
+  });
+  return handleResponse<Annotation[]>(res);
+}
+
+export async function segmentBox(
+  imageId: string,
+  params: {
+    bbox: [number, number, number, number];
+    model_id?: string;
+    threshold?: number;
+    min_area?: number;
+  }
+): Promise<Annotation[]> {
+  const res = await fetch(`${API_BASE}/api/images/${imageId}/segment-box`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  return handleResponse<Annotation[]>(res);
+}
+
 export async function updateAnnotations(
   imageId: string,
   annotations: Annotation[]

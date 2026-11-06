@@ -19,6 +19,8 @@ import {
   uploadImages,
   deleteImage,
   segmentImage,
+  segmentBox,
+  clearAllAnnotations,
   loadDemoDataset,
   getImageUrl,
 } from "@/lib/api";
@@ -111,6 +113,18 @@ export default function WorkspacePage() {
 
       const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
       const modifier = isMac ? e.metaKey : e.ctrlKey;
+
+      if (!modifier) {
+        if (e.key.toLowerCase() === "s" || e.key.toLowerCase() === "v") {
+          setActiveTool("select");
+        } else if (e.key.toLowerCase() === "b") {
+          setActiveTool("box");
+        } else if (e.key.toLowerCase() === "p") {
+          setActiveTool("polygon");
+        } else if (e.key.toLowerCase() === "h") {
+          setActiveTool("pan");
+        }
+      }
 
       if (modifier && !e.shiftKey && e.key.toLowerCase() === "z") {
         e.preventDefault();
@@ -268,6 +282,51 @@ export default function WorkspacePage() {
     }
   };
 
+  // SAM-style Box Prompt Segment
+  const handleSegmentBox = async (bbox: [number, number, number, number]) => {
+    if (!selectedImageId) return;
+    setIsAnnotating(true);
+    setProcessingStatus("Segmenting prompt box...");
+    try {
+      const res = await segmentBox(selectedImageId, {
+        bbox,
+        model_id: selectedModelId,
+        threshold: sensitivity,
+        min_area: minArea,
+      });
+      pushHistory(res);
+      setHasUnsavedChanges(false);
+      setImages((prev) =>
+        prev.map((img) =>
+          img.id === selectedImageId ? { ...img, annotation_count: res.length } : img
+        )
+      );
+      setProcessingStatus(`Added objects from box prompt`);
+    } catch (err: any) {
+      alert(`Box segmentation error: ${err.message}`);
+    } finally {
+      setIsAnnotating(false);
+    }
+  };
+
+  // SAM-style Clear All
+  const handleClearAll = async () => {
+    if (!selectedImageId) return;
+    try {
+      await clearAllAnnotations(selectedImageId);
+      pushHistory([]);
+      setSelectedAnnotationId(null);
+      setImages((prev) =>
+        prev.map((img) =>
+          img.id === selectedImageId ? { ...img, annotation_count: 0 } : img
+        )
+      );
+      setProcessingStatus("Cleared");
+    } catch (err: any) {
+      alert(`Clear failed: ${err.message}`);
+    }
+  };
+
   // Annotation Mutations
   const handleAddAnnotation = (annData: Partial<Annotation>) => {
     const nextIndex = annotations.length + 1;
@@ -410,6 +469,7 @@ export default function WorkspacePage() {
             onUpdateAnnotation={handleUpdateAnnotation}
             onAddAnnotation={handleAddAnnotation}
             onDeleteSelected={handleDeleteSelected}
+            onSegmentBox={handleSegmentBox}
           />
         </main>
 
@@ -419,6 +479,7 @@ export default function WorkspacePage() {
           selectedModelId={selectedModelId}
           onSelectModel={setSelectedModelId}
           onAutoAnnotate={handleAutoAnnotate}
+          onClearAll={handleClearAll}
           isAnnotating={isAnnotating}
           lastResult={lastResult}
           annotations={annotations}

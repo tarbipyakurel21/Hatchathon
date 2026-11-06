@@ -82,4 +82,4 @@ export interface BenchmarkResponse {
   recommendation: string;
 }
 
-export type ToolType = "select" | "pan" | "polygon";
+export type ToolType = "select" | "box" | "polygon" | "pan";

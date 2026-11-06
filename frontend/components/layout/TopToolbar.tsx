@@ -6,6 +6,7 @@ import {
   MousePointer,
   Hand,
   PenTool,
+  Scan,
   RotateCcw,
   RotateCw,
   Trash2,
@@ -83,11 +84,11 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
         )}
       </div>
 
-      {/* Center: Tool Selection & History */}
+      {/* Center: SAM / ComfyUI Tool Bar */}
       <div className="flex items-center gap-1 bg-[#121927] p-1 rounded-lg border border-[#1e293b]">
         <button
           onClick={() => setActiveTool("select")}
-          title="Select Annotation (V)"
+          title="Select Object (S / V)"
           className={`px-2.5 py-1.5 rounded flex items-center gap-1.5 text-xs font-medium transition ${
             activeTool === "select"
               ? "bg-brand-cyan text-slate-950 font-semibold shadow-sm"
@@ -99,21 +100,21 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
         </button>
 
         <button
-          onClick={() => setActiveTool("pan")}
-          title="Pan Canvas (H / Space+Drag)"
+          onClick={() => setActiveTool("box")}
+          title="SAM Box Prompt (B)"
           className={`px-2.5 py-1.5 rounded flex items-center gap-1.5 text-xs font-medium transition ${
-            activeTool === "pan"
+            activeTool === "box"
               ? "bg-brand-cyan text-slate-950 font-semibold shadow-sm"
               : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
           }`}
         >
-          <Hand className="w-3.5 h-3.5" />
-          <span className="hidden md:inline">Pan</span>
+          <Scan className="w-3.5 h-3.5" />
+          <span className="hidden md:inline">Box Prompt</span>
         </button>
 
         <button
           onClick={() => setActiveTool("polygon")}
-          title="Draw Manual Polygon (P)"
+          title="Draw Polygon (P)"
           className={`px-2.5 py-1.5 rounded flex items-center gap-1.5 text-xs font-medium transition ${
             activeTool === "polygon"
               ? "bg-brand-cyan text-slate-950 font-semibold shadow-sm"
@@ -124,13 +125,26 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           <span className="hidden md:inline">Polygon</span>
         </button>
 
+        <button
+          onClick={() => setActiveTool("pan")}
+          title="Pan (H / Space)"
+          className={`px-2.5 py-1.5 rounded flex items-center gap-1.5 text-xs font-medium transition ${
+            activeTool === "pan"
+              ? "bg-brand-cyan text-slate-950 font-semibold shadow-sm"
+              : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+          }`}
+        >
+          <Hand className="w-3.5 h-3.5" />
+          <span className="hidden md:inline">Pan</span>
+        </button>
+
         <div className="h-4 w-[1px] bg-[#1e293b] mx-1" />
 
         {/* Undo / Redo */}
         <button
           onClick={onUndo}
           disabled={!canUndo}
-          title="Undo (Ctrl+Z)"
+          title="Undo (Ctrl/Cmd+Z)"
           className="p-1.5 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 disabled:opacity-30 disabled:hover:bg-transparent transition"
         >
           <RotateCcw className="w-3.5 h-3.5" />
@@ -139,7 +153,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
         <button
           onClick={onRedo}
           disabled={!canRedo}
-          title="Redo (Ctrl+Shift+Z)"
+          title="Redo (Ctrl/Cmd+Shift+Z)"
           className="p-1.5 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 disabled:opacity-30 disabled:hover:bg-transparent transition"
         >
           <RotateCw className="w-3.5 h-3.5" />
@@ -149,7 +163,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
         <button
           onClick={onDeleteSelected}
           disabled={!hasSelected}
-          title="Delete Selected (Backspace/Del)"
+          title="Delete (Del / Backspace)"
           className="p-1.5 rounded text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 disabled:opacity-30 disabled:hover:bg-transparent transition"
         >
           <Trash2 className="w-3.5 h-3.5" />

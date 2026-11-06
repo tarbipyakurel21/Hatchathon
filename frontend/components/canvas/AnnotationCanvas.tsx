@@ -21,6 +21,7 @@ import {
   Hand,
   MousePointer,
   PenTool,
+  Scan,
 } from "lucide-react";
 
 interface AnnotationCanvasProps {
@@ -36,6 +37,7 @@ interface AnnotationCanvasProps {
   onUpdateAnnotation: (ann: Annotation) => void;
   onAddAnnotation: (ann: Partial<Annotation>) => void;
   onDeleteSelected: () => void;
+  onSegmentBox?: (bbox: [number, number, number, number]) => void;
 }
 
 export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
@@ -51,6 +53,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   onUpdateAnnotation,
   onAddAnnotation,
   onDeleteSelected,
+  onSegmentBox,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -76,9 +79,11 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   const [hoveredVertexIdx, setHoveredVertexIdx] = useState<number | null>(null);
   const [draggingVertexIdx, setDraggingVertexIdx] = useState<number | null>(null);
 
-  // Drawing state for manual polygon
+  // Drawing state for manual polygon & SAM box prompt
   const [drawingPoints, setDrawingPoints] = useState<Point[]>([]);
   const [currentMousePos, setCurrentMousePos] = useState<Point | null>(null);
+  const [boxStart, setBoxStart] = useState<Point | null>(null);
+  const [currentBox, setCurrentBox] = useState<[number, number, number, number] | null>(null);
 
   // Load image
   useEffect(() => {
@@ -248,6 +253,13 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
 
     if (e.button !== 0) return; // Only left click for editing
 
+    // SAM-style Box prompt mode
+    if (activeTool === "box") {
+      setBoxStart([imgX, imgY]);
+      setCurrentBox([imgX, imgY, 0, 0]);
+      return;
+    }
+
     // If drawing polygon
     if (activeTool === "polygon") {
       // Check if clicking near first vertex to close
@@ -335,6 +347,16 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
       return;
     }
 
+    // Handle SAM-style box prompt dragging
+    if (activeTool === "box" && boxStart) {
+      const minX = Math.min(boxStart[0], imgX);
+      const minY = Math.min(boxStart[1], imgY);
+      const bw = Math.abs(imgX - boxStart[0]);
+      const bh = Math.abs(imgY - boxStart[1]);
+      setCurrentBox([minX, minY, bw, bh]);
+      return;
+    }
+
     // Handle dragging vertex
     if (draggingVertexIdx !== null && selectedId) {
       const selectedAnn = annotations.find((a) => a.id === selectedId);
@@ -393,6 +415,15 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   const handleMouseUp = () => {
     setIsPanning(false);
     setDraggingVertexIdx(null);
+
+    // If box prompt finished
+    if (activeTool === "box" && currentBox) {
+      if (currentBox[2] >= 10 && currentBox[3] >= 10 && onSegmentBox) {
+        onSegmentBox(currentBox);
+      }
+      setBoxStart(null);
+      setCurrentBox(null);
+    }
   };
 
   // Double click on vertex to delete it
@@ -564,6 +595,19 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
       });
     }
 
+    // Draw Live SAM Box Prompt
+    if (currentBox) {
+      const [bx, by, bw, bh] = currentBox;
+      ctx.fillStyle = "rgba(6, 182, 212, 0.15)";
+      ctx.fillRect(bx, by, bw, bh);
+
+      ctx.strokeStyle = "#22D3EE";
+      ctx.lineWidth = 2 / zoom;
+      ctx.setLineDash([6 / zoom, 4 / zoom]);
+      ctx.strokeRect(bx, by, bw, bh);
+      ctx.setLineDash([]);
+    }
+
     ctx.restore();
     ctx.restore();
   }, [
@@ -582,6 +626,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     showAnnotations,
     drawingPoints,
     currentMousePos,
+    currentBox,
   ]);
 
   // Determine cursor style
@@ -590,7 +635,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     cursorClass = "cursor-grabbing";
   } else if (spacePressed || activeTool === "pan") {
     cursorClass = "cursor-grab";
-  } else if (activeTool === "polygon") {
+  } else if (activeTool === "polygon" || activeTool === "box") {
     cursorClass = "cursor-crosshair";
   } else if (hoveredVertexIdx !== null) {
     cursorClass = "cursor-move";
@@ -652,20 +697,20 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         </button>
       </div>
 
+      {/* SAM Box Prompt helper banner */}
+      {activeTool === "box" && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 bg-brand-cyan/20 border border-brand-cyan/40 rounded-full backdrop-blur-md text-xs text-cyan-200 shadow-xl flex items-center gap-2">
+          <Scan className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+          <span>Click & drag a box around cells to auto-segment</span>
+        </div>
+      )}
+
       {/* Manual Polygon Drawing helper banner */}
       {activeTool === "polygon" && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 bg-brand-cyan/20 border border-brand-cyan/40 rounded-full backdrop-blur-md text-xs text-cyan-200 shadow-xl flex items-center gap-2">
           <PenTool className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
           <span>
-            Click to place points. Click first point or press{" "}
-            <kbd className="px-1 py-0.5 bg-slate-900 rounded border border-slate-700">
-              Enter
-            </kbd>{" "}
-            to complete.{" "}
-            <kbd className="px-1 py-0.5 bg-slate-900 rounded border border-slate-700">
-              Esc
-            </kbd>{" "}
-            to cancel.
+            Click points • Enter or click first point to close • Esc to cancel
           </span>
         </div>
       )}
