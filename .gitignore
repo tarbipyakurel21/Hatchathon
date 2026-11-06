@@ -1,0 +1,29 @@
+# Environments
+.venv/
+node_modules/
+frontend/node_modules/
+frontend/.next/
+dist/
+build/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Data and SQLite
+data/biolabel.db
+data/uploads/*
+!data/uploads/.gitkeep
+data/thumbnails/*
+!data/thumbnails/.gitkeep
+data/masks/*
+!data/masks/.gitkeep
+data/exports/*
+!data/exports/.gitkeep
+data/models/*.pt
+
+# OS
+.DS_Store
+Thumbs.db
