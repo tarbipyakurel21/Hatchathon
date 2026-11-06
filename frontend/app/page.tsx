@@ -98,6 +98,36 @@ export default function WorkspacePage() {
     setHasUnsavedChanges(true);
   }, [future, annotations]);
 
+  // Global Keyboard Shortcuts (Ctrl/Cmd+Z for Undo, Ctrl/Cmd+Shift+Z or Ctrl+Y for Redo)
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if typing in an input or textarea
+      if (
+        document.activeElement?.tagName === "INPUT" ||
+        document.activeElement?.tagName === "TEXTAREA"
+      ) {
+        return;
+      }
+
+      const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      const modifier = isMac ? e.metaKey : e.ctrlKey;
+
+      if (modifier && !e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        handleUndo();
+      } else if (
+        (modifier && e.shiftKey && e.key.toLowerCase() === "z") ||
+        (modifier && e.key.toLowerCase() === "y")
+      ) {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, [handleUndo, handleRedo]);
+
   // Initial Data Load
   useEffect(() => {
     async function init() {
